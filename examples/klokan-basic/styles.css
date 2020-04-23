@@ -1,0 +1,34 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  border: 0;
+  margin: 20;
+  font-family: "Noto Sans";
+  font-size: 16px;
+}
+#mapCanvas {
+  width: 900;
+  height: 600;
+  background-color: gray;
+  position: relative;
+}
+.inline-inputs {
+  margin-left: 1ch;
+}
+.inline-inputs input {
+  width: 7ch;
+  margin: 0 8px 0 2px;
+  text-align: right;
+}
+.text {
+  margin-right: 2ch;
+  line-height: 2;
+}
+.boxlabel {
+  font-weight: bold;
+  display: inline-block;
+  width: 10ch;
+  text-align: right;
+  padding-right: 1ch;
+}

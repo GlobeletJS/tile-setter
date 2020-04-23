@@ -1,0 +1,42 @@
+{
+  "name": "vector-map",
+  "version": "0.0.0",
+  "description": "Tiled vector map powered by a lightweight Canvas2D renderer",
+  "main": "src/index.js",
+  "directories": {
+    "example": "examples"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build-examples": "cd examples && rollup -c",
+    "postversion": "git push && git push --tags"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GlobeletJS/vector-map.git"
+  },
+  "keywords": [
+    "tiled",
+    "vector",
+    "map",
+    "interactive"
+  ],
+  "author": "Jeshurun Hembd",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/GlobeletJS/vector-map/issues"
+  },
+  "homepage": "https://github.com/GlobeletJS/vector-map#readme",
+  "devDependencies": {
+    "rollup": "^2.6.1",
+    "rollup-plugin-node-resolve": "^5.2.0"
+  },
+  "dependencies": {
+    "chunked-queue": "^0.1.2",
+    "d3-tile": "github:GlobeletJS/d3-tile",
+    "tile-mixer": "0.0.7",
+    "tile-painter": "^0.3.4",
+    "tile-rack": "^1.0.1",
+    "tile-stencil": "^0.2.1"
+  }
+}
