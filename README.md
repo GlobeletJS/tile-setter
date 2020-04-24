@@ -2,9 +2,12 @@
 
 Tiled vector map powered by a lightweight Canvas2D renderer
 
-Rendering is guided by a [Mapbox style document]
+Rendering is guided by a [Mapbox style document]. See a simple
+[example] using a style from [OpenMapTiles].
 
 [Mapbox style document]: https://docs.mapbox.com/mapbox-gl-js/style-spec/
+[example]: https://globeletjs.github.io/vector-map/examples/klokan-basic/
+[OpenMapTiles]: https://openmaptiles.org/styles/
 
 ## Installation
 vector-map is provided as an ESM import

@@ -11,16 +11,12 @@
   </head>
 
   <body onload="app.main()">
-    <canvas id="mapCanvas" width=900 height=600></canvas>
-
-    <p>Map style: 
-      <a href="https://openmaptiles.org/styles/#klokantech-basic">Klokantech Basic</a>,
-      &copy; OpenMapTiles.
-    </p>
-    <p>Map tiles and data:
-      <a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> 
-      <a href="https://www.openstreetmap.org/copyright" target="_blank">
-        &copy; OpenStreetMap contributors</a>
-    </p>
+    <div id="main">
+      <canvas id="mapCanvas"></canvas>
+      <div class="attribution">
+        <a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a>
+        <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>
+      </div>
+    </div>
   </body>
 </html>
