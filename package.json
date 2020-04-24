@@ -1,6 +1,6 @@
 {
   "name": "vector-map",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Tiled vector map powered by a lightweight Canvas2D renderer",
   "main": "src/index.js",
   "directories": {
