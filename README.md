@@ -22,8 +22,14 @@ const map = vectorMap.init(params);
 
 ## Parameters
 The supplied parameters object has the following properties:
-- `canvas`: A link to an HTML Canvas. If not supplied, a Canvas will be
-  created with width = 900, height = 600
+- `context`: A 2D rendering context. If not supplied, a
+  [CanvasRenderingContext2D] will be initialized on the supplied `canvas`
+- `canvas`: A link to an HTML Canvas. Only used if `context` is not supplied.
+  If neither `context` nor `canvas` is supplied, a default [HTMLCanvasElement]
+  will be created
 - `width, height`: pixel size of the displayed map. Default: dimensions of
-  the drawingbuffer of the supplied canvas
+  the drawingbuffer of the `canvas`
 - `style`: A link to a Mapbox style document
+
+[CanvasRenderingContext2D]: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D
+[HTMLCanvasElement]: https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement

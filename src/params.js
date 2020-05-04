@@ -4,20 +4,20 @@ export function setParams(userParams) {
     mapboxToken: userParams.mapboxToken,
   };
 
-  // Get canvas, or create one
-  let element = userParams.canvas;
-  let haveCanvas = (element && element.tagName.toLowerCase() === "canvas");
-  if (haveCanvas) {
-    params.canvas = element;
-    params.width = userParams.width || element.width;
-    params.height = userParams.height || element.height;
+  // Get the 2D rendering context, or create it
+  let { context, canvas, width, height } = userParams;
+  if (context) {
+    canvas = context.canvas;
+    params.context = context;
+  } else if (canvas && canvas.tagName.toLowerCase() === "canvas") {
+    params.context = canvas.getContext("2d");
   } else {
-    params.canvas = document.createElement("canvas");
-    params.width = userParams.width || 900;
-    params.height = userParams.height || 600;
+    canvas = document.createElement("canvas");
+    params.context = canvas.getContext("2d");
   }
-  params.canvas.width = params.width;
-  params.canvas.height = params.height;
-
+  // Update canvas dimensions, if specified
+  if (width) canvas.width = width;
+  if (height) canvas.height = height;
+  
   return params;
 }

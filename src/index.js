@@ -10,7 +10,7 @@ export function init(userParams) {
 
   // Set up dummy API
   const api = {
-    canvas: params.canvas,
+    canvas: params.context.canvas,
     draw: () => null,
     when: eventHandler.addListener,
   };
@@ -29,7 +29,7 @@ function setup(styleDoc, params, eventHandler, api) {
     () => eventHandler.emitEvent("tileLoaded"),
     false);
 
-  api.draw = initRenderer(api.canvas, styleDoc, sources.getTilesets);
+  api.draw = initRenderer(params.context, styleDoc, sources.getTilesets);
   
   return api;
 }
