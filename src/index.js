@@ -16,7 +16,7 @@ export function init(userParams) {
   };
 
   // Get style document, parse
-  api.promise = loadStyle(params.style)
+  api.promise = loadStyle(params.style, params.mapboxToken)
     .then( styleDoc => setup(styleDoc, params, eventHandler, api) );
 
   return api;

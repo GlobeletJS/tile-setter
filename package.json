@@ -36,7 +36,7 @@
     "chunked-queue": "^0.1.2",
     "d3-tile": "github:GlobeletJS/d3-tile",
     "tile-mixer": "0.0.7",
-    "tile-painter": "^0.3.4",
+    "tile-painter": "^0.3.5",
     "tile-rack": "^1.0.1",
     "tile-stencil": "^0.2.1"
   }

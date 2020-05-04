@@ -11,13 +11,14 @@ export function main() {
     canvas,
     //width: canvas.width,
     //height: canvas.height,
-    style: "./klokantech-basic-style.json",
+    style: "mapbox://styles/mapbox/streets-v8",
+    mapboxToken: "pk.eyJ1IjoiamhlbWJkIiwiYSI6ImNqcHpueHpyZjBlMjAzeG9kNG9oNzI2NTYifQ.K7fqhk2Z2YZ8NIV94M-5nA",
   }).promise.then(api => setup(api, canvas))
     .catch(console.log);
 }
 
 function setup(api, canvas) {
-  const viewport = [canvas.width, canvas.height];
+  const viewport = [api.canvas.width, api.canvas.height];
 
   const initTransform = getTransform({ 
     center: [-73.885, 40.745], 

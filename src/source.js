@@ -19,10 +19,10 @@ export function initSource({ source, tileFactory }) {
     const tiles = layout(transform);
 
     // Update tile priorities based on the new grid
-    const metric = getTileMetric(layout, tiles, 1.5);
+    const metric = getTileMetric(layout, tiles);
     cache.process(tile => { tile.priority = metric(tile); });
-    numTiles = cache.drop(tile => metric(tile) > 0.9);
-    const stopCondition = ([z, x, y]) => metric({ z, x, y }) > 0.9;
+    numTiles = cache.drop(tile => metric(tile) > 0.75);
+    const stopCondition = ([z, x, y]) => metric({ z, x, y }) > 0.75;
 
     // Retrieve a tile box for every tile in the grid
     const grid = tiles.map(([x, y, z]) => {

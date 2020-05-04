@@ -1,6 +1,7 @@
 export function setParams(userParams) {
   const params = {
     style: userParams.style,
+    mapboxToken: userParams.mapboxToken,
   };
 
   // Get canvas, or create one
