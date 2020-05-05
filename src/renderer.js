@@ -30,13 +30,14 @@ export function initRenderer(context, style, getTilesets) {
     // No tiles for background layers
     if (!tileset) return painter({ zoom });
 
+    let { translate: [tx, ty], scale } = tileset;
     for (const tileBox of tileset) {
       if (!tileBox) continue;
 
       let position = {
-	x: (tileBox.x + tileset.translate[0]) * tileset.scale,
-	y: (tileBox.y + tileset.translate[1]) * tileset.scale,
-	w: tileset.scale
+	x: (tileBox.x + tx) * scale,
+	y: (tileBox.y + ty) * scale,
+	w: scale
       };
 
       painter({

@@ -23,7 +23,7 @@ export function init(userParams) {
 }
 
 function setup(styleDoc, params, eventHandler, api) {
-  const sources = initSources(styleDoc);
+  const sources = initSources(styleDoc, params.context.gl);
 
   sources.reporter.addEventListener("tileLoaded", 
     () => eventHandler.emitEvent("tileLoaded"),

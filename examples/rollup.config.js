@@ -1,5 +1,6 @@
 var fs = require('fs');
 import resolve from 'rollup-plugin-node-resolve';
+import { glsl } from "../build/glsl-plugin.js";
 
 // Get a list of the directory names
 const dirNames = fs
@@ -12,6 +13,7 @@ function makeConfig(dir) {
   return {
     input: dir + '/main.js',
     plugins: [
+      glsl(),
       resolve(),
     ],
     output: {
