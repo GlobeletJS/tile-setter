@@ -11,7 +11,7 @@ export function main() {
     canvas,
     //width: canvas.width,
     //height: canvas.height,
-    style: "./klokantech-basic-style.json",
+    style: "./klokan-fill-line.json", //"./klokantech-basic-style.json",
   }).promise.then(api => setup(api, canvas))
     .catch(console.log);
 }

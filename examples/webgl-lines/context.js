@@ -1,10 +1,8 @@
 import * as yawgl from 'yawgl';
 import * as d3 from 'd3-color';
 import { initTransform } from "./transform.js";
-import fillVertexSrc from "./fill-vertex.glsl";
-import fillFragmentSrc from "./fill-fragment.glsl";
-import strokeVertexSrc from "./stroke-vertex.glsl";
-import strokeFragmentSrc from "./stroke-fragment.glsl";
+import vertexSrc from "./stroke-vertex.glsl";
+import fragmentSrc from "./stroke-fragment.glsl";
 
 export function initGLpaint(canvas) {
   const gl = yawgl.getExtendedContext(canvas);
@@ -13,17 +11,15 @@ export function initGLpaint(canvas) {
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
-  const fillProgram = yawgl.initProgram(gl, fillVertexSrc, fillFragmentSrc);
-  const strokeProgram = yawgl.initProgram(gl, strokeVertexSrc, strokeFragmentSrc);
+  const strokeProgram = yawgl.initProgram(gl, vertexSrc, fragmentSrc);
 
   const transform = initTransform(gl);
 
   const uniforms = {
     projection: transform.matrix,
-    fillStyle: [0, 0, 0, 1],
-    strokeStyle: [0, 0, 0, 1],
-    globalAlpha: 1.0,
-    lineWidth: 1.0,
+    color: [0, 0, 0, 1],
+    opacity: 1.0,
+    width: 1.0,
     miterLimit: 10.0,
   };
 
@@ -44,13 +40,6 @@ export function initGLpaint(canvas) {
     transform.set(1, 0, 0, 1, 0, 0);
   }
 
-  function fill(buffers) {
-    let { vao, indices: { vertexCount, type, offset } } = buffers;
-    fillProgram.setupDraw({ uniforms, vao });
-    gl.drawElements(gl.TRIANGLES, vertexCount, type, offset);
-    gl.bindVertexArray(null);
-  }
-
   function stroke(buffers) {
     strokeProgram.setupDraw({ uniforms, vao: buffers.vao });
     gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, buffers.numInstances);
@@ -59,8 +48,8 @@ export function initGLpaint(canvas) {
 
   function fillRect(x, y, width, height) {
     clipRect(x, y, width, height);
-    let opacity = uniforms.globalAlpha;
-    let color = uniforms.fillStyle.map(c => c * opacity);
+    let opacity = uniforms.opacity;
+    let color = uniforms.color.map(c => c * opacity);
     clear(color);
   }
 
@@ -70,16 +59,16 @@ export function initGLpaint(canvas) {
 
     // Mimic Canvas2D
     set globalAlpha(val) {
-      uniforms.globalAlpha = val;
+      uniforms.opacity = val;
     },
     set fillStyle(val) {
-      uniforms.fillStyle = convertColor(val);
+      uniforms.color = convertColor(val);
     },
     set strokeStyle(val) {
-      uniforms.strokeStyle = convertColor(val);
+      uniforms.color = convertColor(val);
     },
     set lineWidth(val) {
-      uniforms.lineWidth = val;
+      uniforms.width = val;
     },
     set miterLimit(val) {
       uniforms.miterLimit = val;
@@ -95,13 +84,11 @@ export function initGLpaint(canvas) {
     scale: transform.scale,
     restore,
 
-    constructFillVao: fillProgram.constructVao,
     constructStrokeVao: strokeProgram.constructVao,
 
     clear,
     clearRect: () => clear(),
     clipRect,
-    fill,
     stroke,
     fillRect,
   };

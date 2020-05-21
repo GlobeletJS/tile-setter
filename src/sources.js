@@ -4,7 +4,7 @@ import { buildFactory } from "./factory.js";
 import { initTileMixer } from 'tile-mixer';
 import { initSource } from "./source.js";
 
-export function initSources(style, gl) {
+export function initSources(style, context) {
   const { sources, layers } = style;
 
   const queue = chunkedQueue.init();
@@ -24,7 +24,7 @@ export function initSources(style, gl) {
     let subset = layers.filter(
       l => l.source === key && l.type !== "fill-extrusion"
     );
-    let loader = initTileMixer({ source, layers: subset, queue, gl });
+    let loader = initTileMixer({ source, layers: subset, queue, context });
     workerMonitors.push(loader.workerTasks);
     return loader;
   }

@@ -32,12 +32,12 @@
     "gl-matrix": "^3.3.0",
     "rollup": "^2.6.1",
     "rollup-plugin-node-resolve": "^5.2.0",
-    "yawgl": "^0.1.2"
+    "yawgl": "^0.2.0"
   },
   "dependencies": {
     "chunked-queue": "^0.1.2",
     "d3-tile": "github:GlobeletJS/d3-tile",
-    "tile-mixer": "file:../tile-mixer",
+    "tile-mixer": "github:GlobeletJS/tile-mixer#webgl",
     "tile-painter": "github:GlobeletJS/tile-painter",
     "tile-rack": "^1.0.1",
     "tile-stencil": "^0.2.1"

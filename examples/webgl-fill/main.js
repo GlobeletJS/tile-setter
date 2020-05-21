@@ -12,7 +12,7 @@ export function main() {
 
   vectorMap.init({
     context,
-    style: "./klokan-fill-line.json",
+    style: "./klokan-fill.json",
   }).promise.then(api => setup(api, canvas))
     .catch(console.log);
 }

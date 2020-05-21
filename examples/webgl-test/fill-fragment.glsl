@@ -1,8 +1,8 @@
 precision mediump float;
 
-uniform vec4 u_color;
-uniform float u_opacity;
+uniform vec4 fillStyle;
+uniform float globalAlpha;
 
 void main() {
-    gl_FragColor = u_color * u_opacity;
+    gl_FragColor = fillStyle * globalAlpha;
 }
