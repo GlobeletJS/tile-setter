@@ -45,15 +45,16 @@ export function initGLpaint(canvas) {
   }
 
   function fill(buffers) {
-    let { vao, indices: { vertexCount, type, offset } } = buffers;
-    fillProgram.setupDraw({ uniforms, vao });
+    let { fillVao, indices: { vertexCount, type, offset } } = buffers;
+    fillProgram.setupDraw({ uniforms, vao: fillVao });
     gl.drawElements(gl.TRIANGLES, vertexCount, type, offset);
     gl.bindVertexArray(null);
   }
 
   function stroke(buffers) {
-    strokeProgram.setupDraw({ uniforms, vao: buffers.vao });
-    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, buffers.numInstances);
+    let { strokeVao, numInstances } = buffers;
+    strokeProgram.setupDraw({ uniforms, vao: strokeVao });
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, numInstances);
     gl.bindVertexArray(null);
   }
 
