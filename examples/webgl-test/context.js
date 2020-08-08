@@ -5,6 +5,8 @@ import fillVertexSrc from "./fill-vertex.glsl";
 import fillFragmentSrc from "./fill-fragment.glsl";
 import strokeVertexSrc from "./stroke-vertex.glsl";
 import strokeFragmentSrc from "./stroke-fragment.glsl";
+import textVertexSrc from "./text-vertex.glsl";
+import textFragmentSrc from "./text-fragment.glsl";
 
 export function initGLpaint(canvas) {
   const gl = yawgl.getExtendedContext(canvas);
@@ -15,6 +17,7 @@ export function initGLpaint(canvas) {
 
   const fillProgram = yawgl.initProgram(gl, fillVertexSrc, fillFragmentSrc);
   const strokeProgram = yawgl.initProgram(gl, strokeVertexSrc, strokeFragmentSrc);
+  const textProgram = yawgl.initProgram(gl, textVertexSrc, textFragmentSrc);
 
   const transform = initTransform(gl);
 
@@ -25,6 +28,9 @@ export function initGLpaint(canvas) {
     globalAlpha: 1.0,
     lineWidth: 1.0,
     miterLimit: 10.0,
+    fontScale: 1.0,
+    sdf: null,
+    sdfDim: [256, 256],
   };
 
   function clear(color = [0.0, 0.0, 0.0, 0.0]) {
@@ -58,6 +64,13 @@ export function initGLpaint(canvas) {
     gl.bindVertexArray(null);
   }
 
+  function fillText(buffers) {
+    let { textVao, numInstances } = buffers;
+    textProgram.setupDraw({ uniforms, vao: textVao });
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, numInstances);
+    gl.bindVertexArray(null);
+  }
+
   function fillRect(x, y, width, height) {
     clipRect(x, y, width, height);
     let opacity = uniforms.globalAlpha;
@@ -85,6 +98,13 @@ export function initGLpaint(canvas) {
     set miterLimit(val) {
       uniforms.miterLimit = val;
     },
+    set font(val) {
+      uniforms.sdf = val.sampler;
+      uniforms.sdfDim = [val.width, val.height];
+    },
+    set fontSize(val) {
+      uniforms.fontScale = val / 24.0; // TODO: get divisor from sdf-manager?
+    },
     // TODO: implement dashed lines
     setLineDash: () => null,
 
@@ -98,12 +118,14 @@ export function initGLpaint(canvas) {
 
     constructFillVao: fillProgram.constructVao,
     constructStrokeVao: strokeProgram.constructVao,
+    constructTextVao: textProgram.constructVao,
 
     clear,
     clearRect: () => clear(),
     clipRect,
     fill,
     stroke,
+    fillText,
     fillRect,
   };
 }
