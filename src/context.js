@@ -1,16 +1,15 @@
 import * as yawgl from 'yawgl';
 import * as d3 from 'd3-color';
 import { initTransform } from "./transform.js";
-import fillVertexSrc from "./fill-vertex.glsl";
-import fillFragmentSrc from "./fill-fragment.glsl";
-import strokeVertexSrc from "./stroke-vertex.glsl";
-import strokeFragmentSrc from "./stroke-fragment.glsl";
-import textVertexSrc from "./text-vertex.glsl";
-import textFragmentSrc from "./text-fragment.glsl";
+import fillVertexSrc from "./shaders/fill-vertex.glsl";
+import fillFragmentSrc from "./shaders/fill-fragment.glsl";
+import strokeVertexSrc from "./shaders/stroke-vertex.glsl";
+import strokeFragmentSrc from "./shaders/stroke-fragment.glsl";
+import textVertexSrc from "./shaders/text-vertex.glsl";
+import textFragmentSrc from "./shaders/text-fragment.glsl";
 
-export function initGLpaint(canvas) {
-  const gl = yawgl.getExtendedContext(canvas);
-
+export function initGLpaint(gl) {
+  // Input is an extended WebGL context, as created by yawgl.getExtendedContext
   gl.disable(gl.DEPTH_TEST);
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
@@ -80,7 +79,7 @@ export function initGLpaint(canvas) {
 
   return {
     gl,
-    canvas,
+    canvas: gl.canvas,
 
     // Mimic Canvas2D
     set globalAlpha(val) {
@@ -105,8 +104,9 @@ export function initGLpaint(canvas) {
     set fontSize(val) {
       uniforms.fontScale = val / 24.0; // TODO: get divisor from sdf-manager?
     },
-    // TODO: implement dashed lines
+    // TODO: implement dashed lines, patterns
     setLineDash: () => null,
+    createPattern: () => null,
 
     save: () => null,
     getTransform: transform.get,
