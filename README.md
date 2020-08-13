@@ -6,7 +6,7 @@ Rendering is guided by a [Mapbox style document]. See a simple
 [example] using a style from [OpenMapTiles].
 
 [Mapbox style document]: https://docs.mapbox.com/mapbox-gl-js/style-spec/
-[example]: https://globeletjs.github.io/vector-map/examples/klokan-basic/
+[example]: https://globeletjs.github.io/vector-map/examples/klokan-basic/index.html
 [OpenMapTiles]: https://openmaptiles.org/styles/
 
 ## Installation
