@@ -1,6 +1,6 @@
 # vector-map
 
-Tiled vector map powered by a lightweight Canvas2D renderer
+Tiled vector map powered by a lightweight WebGL renderer
 
 Rendering is guided by a [Mapbox style document]. See a simple
 [example] using a style from [OpenMapTiles].
@@ -22,14 +22,10 @@ const map = vectorMap.init(params);
 
 ## Parameters
 The supplied parameters object has the following properties:
-- `context`: A 2D rendering context. If not supplied, a
-  [CanvasRenderingContext2D] will be initialized on the supplied `canvas`
-- `canvas`: A link to an HTML Canvas. Only used if `context` is not supplied.
-  If neither `context` nor `canvas` is supplied, a default [HTMLCanvasElement]
-  will be created
-- `width, height`: pixel size of the displayed map. Default: dimensions of
-  the drawingbuffer of the `canvas`
+- `gl`: An extended WebGL rendering context, as created by the [yawgl]
+  method `getExtendedContext`
 - `style`: A link to a Mapbox style document
+- `mapboxToken` (Optional): Your API token for Mapbox services
 
-[CanvasRenderingContext2D]: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D
+[yawgl]: https://github.com/GlobeletJS/yawgl
 [HTMLCanvasElement]: https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement

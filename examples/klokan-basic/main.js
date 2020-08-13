@@ -1,23 +1,21 @@
+import * as yawgl from 'yawgl';
 import * as d3 from 'd3';
 import * as vectorMap from "../../src/index.js";
 import * as projection from "../../src/proj-mercator.js";
 
 export function main() {
   const canvas = document.getElementById("mapCanvas");
-  canvas.width = canvas.clientWidth;
-  canvas.height = canvas.clientHeight;
+  const gl = yawgl.getExtendedContext(canvas);
 
-  vectorMap.init({
-    canvas,
-    //width: canvas.width,
-    //height: canvas.height,
-    style: "./klokan-fill-line.json", //"./klokantech-basic-style.json",
-  }).promise.then(api => setup(api, canvas))
+  const style = "klokantech-basic-style.json";
+
+  vectorMap.init({ gl, style })
+    .promise.then(api => setup(api, canvas))
     .catch(console.log);
 }
 
 function setup(api, canvas) {
-  const viewport = [canvas.width, canvas.height];
+  const viewport = [canvas.clientWidth, canvas.clientHeight];
 
   const initTransform = getTransform({ 
     center: [-73.885, 40.745], 

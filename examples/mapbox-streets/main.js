@@ -1,16 +1,14 @@
+import * as yawgl from 'yawgl';
 import * as d3 from 'd3';
 import * as vectorMap from "../../src/index.js";
 import * as projection from "../../src/proj-mercator.js";
 
 export function main() {
   const canvas = document.getElementById("mapCanvas");
-  canvas.width = canvas.clientWidth;
-  canvas.height = canvas.clientHeight;
+  const gl = yawgl.getExtendedContext(canvas);
 
   vectorMap.init({
-    canvas,
-    //width: canvas.width,
-    //height: canvas.height,
+    gl,
     style: "mapbox://styles/mapbox/streets-v8",
     mapboxToken: "pk.eyJ1IjoiamhlbWJkIiwiYSI6ImNqcHpueHpyZjBlMjAzeG9kNG9oNzI2NTYifQ.K7fqhk2Z2YZ8NIV94M-5nA",
   }).promise.then(api => setup(api, canvas))
@@ -18,7 +16,7 @@ export function main() {
 }
 
 function setup(api, canvas) {
-  const viewport = [api.canvas.width, api.canvas.height];
+  const viewport = [canvas.clientWidth, canvas.clientHeight];
 
   const initTransform = getTransform({ 
     center: [-73.885, 40.745], 

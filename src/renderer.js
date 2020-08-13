@@ -1,9 +1,9 @@
-import { initMapPainter } from 'tile-painter';
 import { getStyleFuncs  } from 'tile-stencil';
+import { initMapPainter } from 'tile-painter';
+import { resizeCanvasToDisplaySize } from 'yawgl';
 
 export function initRenderer(context, style, getTilesets) {
   const { sources, spriteData: spriteObject, layers } = style;
-  const viewport = [context.canvas.width, context.canvas.height];
 
   const painters = layers.map(getStyleFuncs).map(styleLayer => {
     let source = sources[styleLayer.source];
@@ -12,15 +12,15 @@ export function initRenderer(context, style, getTilesets) {
   });
 
   function drawLayers(transform) {
-    // TODO: resize canvas drawingbuffer to displayed size?
+    let resized = resizeCanvasToDisplaySize(context.canvas, window.devicePixelRatio);
+    let { width, height } = context.canvas;
 
-    context.clearRect(0, 0, ...viewport);
-    const tilesets = getTilesets(viewport, transform);
+    context.clearRect(0, 0, width, height);
+    const tilesets = getTilesets([width, height], transform);
     // Zoom is always based on tilesize 512px (2^9)
     const zoom = Math.log2(transform.k) - 9;
 
     painters.forEach(painter => {
-
       if (zoom < painter.minzoom || painter.maxzoom < zoom) return;
       drawLayer(painter, zoom, tilesets[painter.source]);
     });
