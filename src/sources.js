@@ -11,14 +11,14 @@ export function initSources(style, context) {
   const workerMonitors = [];
   const reporter = document.createElement("div");
 
-  const getters = {};
-  Object.entries(sources).forEach(([key, source]) => {
+  const getters = Object.entries(sources).reduce((dict, [key, source]) => {
     let loader = (source.type === "vector")
       ? initVectorLoader(key, source)
       : initRasterLoader(source);
     let tileFactory = buildFactory({ source, loader, reporter });
-    getters[key] = initSource({ source, tileFactory });
-  });
+    dict[key] = initSource({ source, tileFactory });
+    return dict;
+  }, {});
 
   function initVectorLoader(key, source) {
     let subset = layers.filter(
@@ -35,19 +35,18 @@ export function initSources(style, context) {
     return loader;
   }
 
-  function getTilesets(viewpt, transfm) {
-    const tilesets = {};
-    Object.entries(getters).forEach(([key, getter]) => {
-      tilesets[key] = getter.getTiles(viewpt, transfm);
-    });
+  function getTilesets(viewport, transform, pixRatio = 1) {
+    const tilesets = Object.entries(getters).reduce((dict, [key, getter]) => {
+      dict[key] = getter.getTiles(viewport, transform, pixRatio);
+      return dict;
+    }, {});
     queue.sortTasks();
     return tilesets;
   }
 
   return {
     getTilesets,
-    workerTasks: () =>
-      workerMonitors.reduce((sum, counter) => sum + counter(), 0),
+    workerTasks: () => workerMonitors.reduce((s, mon) => s + mon(), 0),
     queuedTasks: () => taskQueue.countTasks(),
     reporter,
   };

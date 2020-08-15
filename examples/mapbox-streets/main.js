@@ -49,7 +49,9 @@ function setup(api, canvas) {
   function animate(time) {
     //ctx.drawImage(api.canvas, 0, 0);
     //setTimeout(() => {
-    api.draw(transform);
+    let pixRatio = window.devicePixelRatio;
+    let resized = yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
+    api.draw(transform, pixRatio);
     requestAnimationFrame(animate);
     //});
   }

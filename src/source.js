@@ -13,7 +13,7 @@ export function initSource({ source, tileFactory }) {
     .maxZoom(maxzoom)
     .clampX(false); // Allow panning across the antimeridian
 
-  function getTiles(viewport, transform) {
+  function getTiles(viewport, transform, pixRatio = 1) {
     // Get the grid of tiles needed for the current viewport
     layout.size(viewport);
     const tiles = layout(transform);
@@ -35,11 +35,8 @@ export function initSource({ source, tileFactory }) {
 
     // Avoid seams between tiles: round coordinate transform to the nearest pixel
     // TODO: Is this problematic when we have varying tile sizes across sources?
-    const pixRatio = window.devicePixelRatio;
-    const tilePix = Math.round(tiles.scale * pixRatio);
-    grid.scale = tilePix / pixRatio;
-    grid.translate = tiles.translate
-      .map(x => Math.round(x * tilePix) / tilePix);
+    const scale = grid.scale = Math.round(tiles.scale * pixRatio);
+    grid.translate = tiles.translate.map(x => Math.round(x * scale) / scale);
 
     return grid;
   }
