@@ -11,20 +11,26 @@ export function initRenderer(context, style, getTilesets) {
   });
 
   function drawLayers(transform, pixRatio = 1) {
-    let { width, height } = context.canvas;
-    context.clearRect(0, 0, width, height);
+    const { width, height } = context.canvas; // Allow for external resizing
 
     // Use 'CSS pixel' size for finding the tiles to display
-    let viewport = [ width / pixRatio, height / pixRatio ];
+    const viewport = [ width / pixRatio, height / pixRatio ];
     const tilesets = getTilesets(viewport, transform, pixRatio);
+
+    const tilesetVals = Object.values(tilesets);
+    const loadStatus = tilesetVals.map(t => t.loaded)
+      .reduce((s, l) => s + l) / tilesetVals.length;
 
     // Zoom for styling is always based on tilesize 512px (2^9) in CSS pixels
     const zoom = Math.log2(transform.k) - 9;
 
+    context.clearRect(0, 0, width, height);
     painters.forEach(painter => {
       if (zoom < painter.minzoom || painter.maxzoom < zoom) return;
       drawLayer(painter, zoom, tilesets[painter.source], pixRatio);
     });
+
+    return loadStatus;
   }
 
   function drawLayer(painter, zoom, tileset, pixRatio) {

@@ -33,6 +33,12 @@ export function initSource({ source, tileFactory }) {
       return Object.assign(box, { x, y, z });
     });
 
+    // Find the fraction of tiles that are fully loaded
+    grid.loaded = grid.reduce((frac, box) => {
+      if (!box) return frac;
+      return frac + (box.sw / tileSize) ** 2;
+    }, 0) / grid.length;
+
     // Avoid seams between tiles: round coordinate transform to the nearest pixel
     // TODO: Is this problematic when we have varying tile sizes across sources?
     const scale = grid.scale = Math.round(tiles.scale * pixRatio);

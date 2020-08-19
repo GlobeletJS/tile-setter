@@ -43,17 +43,18 @@ function setup(api, canvas) {
 
   //api.draw(transform);
   //api.when("tileLoaded", () => api.draw(transform));
-  //const ctx = canvas.getContext("2d");
+  const loadStatus = document.getElementById("loadStatus");
 
   requestAnimationFrame(animate);
   function animate(time) {
-    //ctx.drawImage(api.canvas, 0, 0);
-    //setTimeout(() => {
     let pixRatio = window.devicePixelRatio;
     let resized = yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
-    api.draw(transform, pixRatio);
+    const percent = api.draw(transform, pixRatio) * 100;
+    loadStatus.innerHTML = (percent < 100)
+      ? "Loading: " + percent.toFixed(0) + "%"
+      : "Complete! " + percent.toFixed(0) + "%";
+
     requestAnimationFrame(animate);
-    //});
   }
 }
 
