@@ -1,6 +1,6 @@
 import * as yawgl from 'yawgl';
 import * as d3 from 'd3';
-import * as vectorMap from "../../src/index.js";
+import * as vectorMap from "../../dist/vector-map.bundle.js";
 import * as projection from "../../src/proj-mercator.js";
 
 export function main() {

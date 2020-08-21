@@ -2,12 +2,14 @@
   "name": "vector-map",
   "version": "0.0.1",
   "description": "Tiled vector map powered by a lightweight Canvas2D renderer",
-  "main": "src/index.js",
+  "main": "dist/vector-map.bundle.js",
   "directories": {
     "example": "examples"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "npm run build-module && npm run build-examples",
+    "build-module": "rollup -c build/rollup.config.js",
     "build-examples": "cd examples && rollup -c",
     "postversion": "git push && git push --tags"
   },
