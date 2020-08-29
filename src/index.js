@@ -5,13 +5,18 @@ import { initRenderer } from "./renderer.js";
 import { initEventHandler } from "./events.js";
 
 export function init(userParams) {
-  const { gl, style, mapboxToken } = userParams;
-  const context = initGLpaint(gl);
+  const gl = userParams.gl;
+  const { 
+    framebuffer = null,
+    framebufferSize = gl.canvas, // { width, height }
+    style, mapboxToken,
+  } = userParams;
+
+  const context = initGLpaint(gl, framebuffer, framebufferSize);
   const eventHandler = initEventHandler();
 
   // Set up dummy API
   const api = {
-    canvas: context.canvas,
     draw: () => null,
     when: eventHandler.addListener,
   };

@@ -1,12 +1,11 @@
 import { multiply } from 'gl-matrix/mat3';
 
-export function initTransform(gl) {
+export function initTransform(framebufferSize) {
   const m = new Float64Array(9);
   reset();
 
   function reset() {
-    let { width, height } = gl.canvas;
-    gl.viewport(0, 0, width, height);
+    let { width, height } = framebufferSize;
 
     // Default transform maps [0, 0] => [-1, 1] and [width, height] => [1, -1]
     // NOTE WebGL column-ordering!

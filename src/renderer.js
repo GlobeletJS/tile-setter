@@ -11,7 +11,7 @@ export function initRenderer(context, style, getTilesets) {
   });
 
   function drawLayers(transform, pixRatio = 1) {
-    const { width, height } = context.canvas; // Allow for external resizing
+    const { width, height } = context.canvas;
 
     // Use 'CSS pixel' size for finding the tiles to display
     const viewport = [ width / pixRatio, height / pixRatio ];
@@ -24,7 +24,8 @@ export function initRenderer(context, style, getTilesets) {
     // Zoom for styling is always based on tilesize 512px (2^9) in CSS pixels
     const zoom = Math.log2(transform.k) - 9;
 
-    context.clearRect(0, 0, width, height);
+    context.bindFramebufferAndSetViewport();
+    context.clear();
     painters.forEach(painter => {
       if (zoom < painter.minzoom || painter.maxzoom < zoom) return;
       drawLayer(painter, zoom, tilesets[painter.source], pixRatio);

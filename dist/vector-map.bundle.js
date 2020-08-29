@@ -595,13 +595,12 @@ function multiply(out, a, b) {
   return out;
 }
 
-function initTransform(gl) {
+function initTransform(framebufferSize) {
   const m = new Float64Array(9);
   reset();
 
   function reset() {
-    let { width, height } = gl.canvas;
-    gl.viewport(0, 0, width, height);
+    let { width, height } = framebufferSize;
 
     // Default transform maps [0, 0] => [-1, 1] and [width, height] => [1, -1]
     // NOTE WebGL column-ordering!
@@ -783,7 +782,7 @@ void main() {
 }
 `;
 
-function initGLpaint(gl) {
+function initGLpaint(gl, framebuffer, framebufferSize) {
   // Input is an extended WebGL context, as created by yawgl.getExtendedContext
   gl.disable(gl.DEPTH_TEST);
   gl.enable(gl.BLEND);
@@ -793,7 +792,7 @@ function initGLpaint(gl) {
   const strokeProgram = initProgram(gl, strokeVertexSrc, strokeFragmentSrc);
   const textProgram = initProgram(gl, textVertexSrc, textFragmentSrc);
 
-  const transform = initTransform(gl);
+  const transform = initTransform(framebufferSize);
 
   const uniforms = {
     projection: transform.matrix,
@@ -852,9 +851,16 @@ function initGLpaint(gl) {
     clear(color);
   }
 
+  function bindFramebufferAndSetViewport() {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+    let { width, height } = framebufferSize;
+    gl.viewport(0, 0, width, height);
+  }
+
   return {
     gl,
-    canvas: gl.canvas,
+    canvas: framebufferSize,
+    bindFramebufferAndSetViewport,
 
     // Mimic Canvas2D
     set globalAlpha(val) {
@@ -896,7 +902,7 @@ function initGLpaint(gl) {
     constructTextVao: textProgram.constructVao,
 
     clear,
-    clearRect: () => clear(),
+    clearRect: () => clear(), // TODO: clipRect() before clear()?
     clipRect,
     fill,
     stroke,
@@ -7599,7 +7605,7 @@ function initRenderer$1(context, style, getTilesets) {
   });
 
   function drawLayers(transform, pixRatio = 1) {
-    const { width, height } = context.canvas; // Allow for external resizing
+    const { width, height } = context.canvas;
 
     // Use 'CSS pixel' size for finding the tiles to display
     const viewport = [ width / pixRatio, height / pixRatio ];
@@ -7612,7 +7618,8 @@ function initRenderer$1(context, style, getTilesets) {
     // Zoom for styling is always based on tilesize 512px (2^9) in CSS pixels
     const zoom = Math.log2(transform.k) - 9;
 
-    context.clearRect(0, 0, width, height);
+    context.bindFramebufferAndSetViewport();
+    context.clear();
     painters.forEach(painter => {
       if (zoom < painter.minzoom || painter.maxzoom < zoom) return;
       drawLayer(painter, zoom, tilesets[painter.source], pixRatio);
@@ -7688,13 +7695,18 @@ function initEventHandler() {
 }
 
 function init$2(userParams) {
-  const { gl, style, mapboxToken } = userParams;
-  const context = initGLpaint(gl);
+  const gl = userParams.gl;
+  const { 
+    framebuffer = null,
+    framebufferSize = gl.canvas, // { width, height }
+    style, mapboxToken,
+  } = userParams;
+
+  const context = initGLpaint(gl, framebuffer, framebufferSize);
   const eventHandler = initEventHandler();
 
   // Set up dummy API
   const api = {
-    canvas: context.canvas,
     draw: () => null,
     when: eventHandler.addListener,
   };

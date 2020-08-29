@@ -8,7 +8,7 @@ import strokeFragmentSrc from "./shaders/stroke-fragment.glsl";
 import textVertexSrc from "./shaders/text-vertex.glsl";
 import textFragmentSrc from "./shaders/text-fragment.glsl";
 
-export function initGLpaint(gl) {
+export function initGLpaint(gl, framebuffer, framebufferSize) {
   // Input is an extended WebGL context, as created by yawgl.getExtendedContext
   gl.disable(gl.DEPTH_TEST);
   gl.enable(gl.BLEND);
@@ -18,7 +18,7 @@ export function initGLpaint(gl) {
   const strokeProgram = yawgl.initProgram(gl, strokeVertexSrc, strokeFragmentSrc);
   const textProgram = yawgl.initProgram(gl, textVertexSrc, textFragmentSrc);
 
-  const transform = initTransform(gl);
+  const transform = initTransform(framebufferSize);
 
   const uniforms = {
     projection: transform.matrix,
@@ -77,9 +77,16 @@ export function initGLpaint(gl) {
     clear(color);
   }
 
+  function bindFramebufferAndSetViewport() {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+    let { width, height } = framebufferSize;
+    gl.viewport(0, 0, width, height);
+  }
+
   return {
     gl,
-    canvas: gl.canvas,
+    canvas: framebufferSize,
+    bindFramebufferAndSetViewport,
 
     // Mimic Canvas2D
     set globalAlpha(val) {
@@ -121,7 +128,7 @@ export function initGLpaint(gl) {
     constructTextVao: textProgram.constructVao,
 
     clear,
-    clearRect: () => clear(),
+    clearRect: () => clear(), // TODO: clipRect() before clear()?
     clipRect,
     fill,
     stroke,
