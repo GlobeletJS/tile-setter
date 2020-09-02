@@ -814,7 +814,7 @@ function initGLpaint(gl, framebuffer, framebufferSize) {
 
   function clipRect(x, y, width, height) {
     gl.enable(gl.SCISSOR_TEST);
-    let yflip = Math.round(gl.canvas.height - y - height);
+    let yflip = Math.round(framebufferSize.height - y - height);
     gl.scissor(Math.round(x), yflip, width, height);
   }
 
@@ -7707,6 +7707,8 @@ function init$2(userParams) {
 
   // Set up dummy API
   const api = {
+    gl,
+    size: framebufferSize,
     draw: () => null,
     when: eventHandler.addListener,
   };

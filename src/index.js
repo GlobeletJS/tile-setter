@@ -17,6 +17,8 @@ export function init(userParams) {
 
   // Set up dummy API
   const api = {
+    gl,
+    size: framebufferSize,
     draw: () => null,
     when: eventHandler.addListener,
   };
