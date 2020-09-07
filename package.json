@@ -42,6 +42,7 @@
     "tile-mixer": "github:GlobeletJS/tile-mixer#webgl",
     "tile-painter": "github:GlobeletJS/tile-painter#webgl",
     "tile-rack": "^1.0.1",
-    "tile-stencil": "^0.2.3"
+    "tile-stencil": "^0.2.3",
+    "geojson-vt": "^3.2.1"
   }
 }
