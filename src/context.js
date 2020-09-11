@@ -40,8 +40,9 @@ export function initGLpaint(gl, framebuffer, framebufferSize) {
 
   function clipRect(x, y, width, height) {
     gl.enable(gl.SCISSOR_TEST);
-    let yflip = Math.round(framebufferSize.height - y - height);
-    gl.scissor(Math.round(x), yflip, width, height);
+    let yflip = framebufferSize.height - y - height;
+    let roundedArgs = [x, yflip, width, height].map(Math.round);
+    gl.scissor(...roundedArgs);
   }
 
   function restore() {

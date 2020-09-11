@@ -814,8 +814,9 @@ function initGLpaint(gl, framebuffer, framebufferSize) {
 
   function clipRect(x, y, width, height) {
     gl.enable(gl.SCISSOR_TEST);
-    let yflip = Math.round(framebufferSize.height - y - height);
-    gl.scissor(Math.round(x), yflip, width, height);
+    let yflip = framebufferSize.height - y - height;
+    let roundedArgs = [x, yflip, width, height].map(Math.round);
+    gl.scissor(...roundedArgs);
   }
 
   function restore() {
@@ -7113,7 +7114,7 @@ function constant(x) {
 }
 
 function tile() {
-  let minZoom = 0, maxZoom = 30;
+  let maxZoom = 30;
   let x0 = 0, y0 = 0, x1 = 960, y1 = 500;
   let clampX = true, clampY = true;
   let tileSize = 256;
@@ -7125,7 +7126,7 @@ function tile() {
     const scale_ = +scale.apply(this, arguments);
     const translate_ = translate.apply(this, arguments);
     const z = Math.log2(scale_ / tileSize);
-    const z0 = Math.round(Math.min(Math.max(minZoom, z + zoomDelta), maxZoom));
+    const z0 = Math.round(Math.min(z + zoomDelta, maxZoom));
     const k = Math.pow(2, z - z0) * tileSize;
     const x = +translate_[0] - scale_ / 2;
     const y = +translate_[1] - scale_ / 2;
@@ -7134,13 +7135,13 @@ function tile() {
     const ymin = Math.max(clampY ? 0 : -Infinity, Math.floor((y0 - y) / k));
     const ymax = Math.min(clampY ? 1 << z0 : Infinity, Math.ceil((y1 - y) / k));
     const tiles = [];
+    tiles.translate = [x / k, y / k];
+    tiles.scale = k;
     for (let y = ymin; y < ymax; ++y) {
       for (let x = xmin; x < xmax; ++x) {
         tiles.push([x, y, z0]);
       }
     }
-    tiles.translate = [x / k, y / k];
-    tiles.scale = k;
     return tiles;
   }
 
@@ -7162,10 +7163,6 @@ function tile() {
 
   tile.zoomDelta = function(_) {
     return arguments.length ? (zoomDelta = +_, tile) : zoomDelta;
-  };
-
-  tile.minZoom = function(_) {
-    return arguments.length ? (minZoom = +_, tile) : minZoom;
   };
 
   tile.maxZoom = function(_) {
@@ -7281,10 +7278,8 @@ function initSource({ source, tileFactory }) {
       return frac + (box.sw / tileSize) ** 2;
     }, 0) / grid.length;
 
-    // Avoid seams between tiles: round coordinate transform to the nearest pixel
-    // TODO: Is this problematic when we have varying tile sizes across sources?
-    const scale = grid.scale = Math.round(tiles.scale * pixRatio);
-    grid.translate = tiles.translate.map(x => Math.round(x * scale) / scale);
+    grid.scale = tiles.scale;
+    grid.translate = tiles.translate.slice();
 
     return grid;
   }
@@ -7595,7 +7590,7 @@ function initMapPainter(params) {
   return paint;
 }
 
-function initRenderer$1(context, style, getTilesets) {
+function initRenderer$1(context, style) {
   const { sources, spriteData: spriteObject, layers } = style;
 
   const painters = layers.map(getStyleFuncs).map(styleLayer => {
@@ -7604,19 +7599,11 @@ function initRenderer$1(context, style, getTilesets) {
     return initMapPainter({ context, styleLayer, spriteObject, tileSize });
   });
 
-  function drawLayers(transform, pixRatio = 1) {
-    const { width, height } = context.canvas;
-
-    // Use 'CSS pixel' size for finding the tiles to display
-    const viewport = [ width / pixRatio, height / pixRatio ];
-    const tilesets = getTilesets(viewport, transform, pixRatio);
-
+  function drawLayers(tilesets, zoom, pixRatio = 1) {
+    // TODO: move out to sources management?
     const tilesetVals = Object.values(tilesets);
     const loadStatus = tilesetVals.map(t => t.loaded)
       .reduce((s, l) => s + l) / tilesetVals.length;
-
-    // Zoom for styling is always based on tilesize 512px (2^9) in CSS pixels
-    const zoom = Math.log2(transform.k) - 9;
 
     context.bindFramebufferAndSetViewport();
     context.clear();
@@ -7633,13 +7620,15 @@ function initRenderer$1(context, style, getTilesets) {
     if (!tileset) return painter({ zoom });
 
     let { translate: [tx, ty], scale } = tileset;
+    let pixScale = scale * pixRatio;
+
     for (const tileBox of tileset) {
       if (!tileBox) continue;
 
       let position = {
-	x: (tileBox.x + tx) * scale,
-	y: (tileBox.y + ty) * scale,
-	w: scale,
+	x: (tileBox.x + tx) * pixScale,
+	y: (tileBox.y + ty) * pixScale,
+	w: pixScale,
       };
 
       painter({
@@ -7694,6 +7683,60 @@ function initEventHandler() {
   };
 }
 
+function initMapTransform({ size, minTileSize = 256 }) {
+  const transform = { k: 1, x: 0, y: 0 };
+  const camPos = new Float64Array([0.5, 0.5]);
+  const scale = new Float64Array([1.0, 1.0]);
+  const logTileSize = Math.log2(minTileSize);
+
+  function set(rawTransform) {
+    // Round raw values to ensure alignment with screen pixels
+    const { k, x, y } = rawTransform;
+
+    // Find the exact and integer zoom levels
+    let z = Math.log2(k) - logTileSize;
+    let z0 = Math.floor(z);
+
+    // Tile scale for display is determined by the fractional part of the zoom.
+    // Round this scale to the nearest integer number of pixels
+    let tileScale = Math.round(2 ** (z - z0) * minTileSize);
+
+    // The rounded k value: the pixel size of the whole map
+    transform.k = 2 ** z0 * tileScale;
+
+    // Adjust the translation values for the change in the scale
+    let kScale = transform.k / k;
+    let sx = x * kScale;
+    let sy = y * kScale;
+    // Round these values to the nearest pixel
+    transform.x = Math.round(sx);
+    transform.y = Math.round(sy);
+
+    // Make sure camera is still pointing at the original location: shift from 
+    // the center [0.5, 0.5] by the change in the translation due to rounding
+    camPos[0] = 0.5 + (transform.x - sx) / size.width;
+    camPos[1] = 0.5 + (transform.y - sy) / size.height;
+    scale[0] = transform.k / size.width;
+    scale[1] = transform.k / size.height;
+  }
+
+  function setCenterZoom(center, zoom) {
+    // Convert lon/lat zoom to x/y/k
+    
+    // Use these values to round and set the transform
+  }
+
+  return {
+    set,
+    setCenterZoom,
+
+    getViewport: () => [size.width, size.height],
+    getTransform: () => Object.assign({}, transform),
+    getCamPos: () => camPos.slice(),
+    getScale: () => scale.slice(),
+  };
+}
+
 function init$2(userParams) {
   const gl = userParams.gl;
   const { 
@@ -7722,13 +7765,28 @@ function init$2(userParams) {
 
 function setup(styleDoc, context, eventHandler, api) {
   const sources = initSources(styleDoc, context);
-
   sources.reporter.addEventListener("tileLoaded", 
     () => eventHandler.emitEvent("tileLoaded"),
     false);
 
-  api.draw = initRenderer$1(context, styleDoc, sources.getTilesets);
-  
+  const render = initRenderer$1(context, styleDoc);
+  const mapTransform = initMapTransform({ 
+    size: context.canvas, 
+    minTileSize: 512,
+  });
+
+  api.draw = function(transform, pixRatio) {
+    const { width, height } = context.canvas;
+    const viewport = [width / pixRatio, height / pixRatio];
+    mapTransform.set(transform);
+    const rounded = mapTransform.getTransform();
+    const tilesets = sources.getTilesets(viewport, rounded, pixRatio);
+
+    // Zoom for styling is always based on tilesize 512px (2^9) in CSS pixels
+    const zoom = Math.log2(transform.k) - 9;
+    return render(tilesets, zoom, pixRatio);
+  };
+
   return api;
 }
 

@@ -1,7 +1,7 @@
 import { getStyleFuncs  } from 'tile-stencil';
 import { initMapPainter } from 'tile-painter';
 
-export function initRenderer(context, style, getTilesets) {
+export function initRenderer(context, style) {
   const { sources, spriteData: spriteObject, layers } = style;
 
   const painters = layers.map(getStyleFuncs).map(styleLayer => {
@@ -10,19 +10,11 @@ export function initRenderer(context, style, getTilesets) {
     return initMapPainter({ context, styleLayer, spriteObject, tileSize });
   });
 
-  function drawLayers(transform, pixRatio = 1) {
-    const { width, height } = context.canvas;
-
-    // Use 'CSS pixel' size for finding the tiles to display
-    const viewport = [ width / pixRatio, height / pixRatio ];
-    const tilesets = getTilesets(viewport, transform, pixRatio);
-
+  function drawLayers(tilesets, zoom, pixRatio = 1) {
+    // TODO: move out to sources management?
     const tilesetVals = Object.values(tilesets);
     const loadStatus = tilesetVals.map(t => t.loaded)
       .reduce((s, l) => s + l) / tilesetVals.length;
-
-    // Zoom for styling is always based on tilesize 512px (2^9) in CSS pixels
-    const zoom = Math.log2(transform.k) - 9;
 
     context.bindFramebufferAndSetViewport();
     context.clear();
@@ -39,13 +31,15 @@ export function initRenderer(context, style, getTilesets) {
     if (!tileset) return painter({ zoom });
 
     let { translate: [tx, ty], scale } = tileset;
+    let pixScale = scale * pixRatio;
+
     for (const tileBox of tileset) {
       if (!tileBox) continue;
 
       let position = {
-	x: (tileBox.x + tx) * scale,
-	y: (tileBox.y + ty) * scale,
-	w: scale,
+	x: (tileBox.x + tx) * pixScale,
+	y: (tileBox.y + ty) * pixScale,
+	w: pixScale,
       };
 
       painter({

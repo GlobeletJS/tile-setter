@@ -39,10 +39,8 @@ export function initSource({ source, tileFactory }) {
       return frac + (box.sw / tileSize) ** 2;
     }, 0) / grid.length;
 
-    // Avoid seams between tiles: round coordinate transform to the nearest pixel
-    // TODO: Is this problematic when we have varying tile sizes across sources?
-    const scale = grid.scale = Math.round(tiles.scale * pixRatio);
-    grid.translate = tiles.translate.map(x => Math.round(x * scale) / scale);
+    grid.scale = tiles.scale;
+    grid.translate = tiles.translate.slice();
 
     return grid;
   }
