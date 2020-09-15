@@ -7,7 +7,7 @@ export function main() {
   const canvas = document.getElementById("mapCanvas");
   const gl = yawgl.getExtendedContext(canvas);
 
-  const style = "klokantech-basic-style.json";
+  const style = "klokantech-basic-style-geojson.json";
 
   vectorMap.init({ gl, style })
     .promise.then(api => setup(api, canvas))

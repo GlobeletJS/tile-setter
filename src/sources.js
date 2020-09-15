@@ -3,6 +3,7 @@ import { initRasterLoader } from "./raster.js";
 import { buildFactory } from "./factory.js";
 import { initTileMixer } from 'tile-mixer';
 import { initSource } from "./source.js";
+import geojsonvt from 'geojson-vt';
 
 export function initSources(style, context) {
   const { glyphs, sources, layers } = style;
@@ -12,9 +13,10 @@ export function initSources(style, context) {
   const reporter = document.createElement("div");
 
   const getters = Object.entries(sources).reduce((dict, [key, source]) => {
-    let loader = (source.type === "vector")
-      ? initVectorLoader(key, source)
-      : initRasterLoader(source);
+    let loader;
+    if(source.type === "vector"){loader = initVectorLoader(key, source);}
+    if(source.type === "geojson"){loader = initVectorLoader(key, source);}
+    if(source.type === "raster"){loader = initRasterLoader(source);}
     let tileFactory = buildFactory({ source, loader, reporter });
     dict[key] = initSource({ source, tileFactory });
     return dict;
