@@ -1,53 +1,42 @@
-import { initGLpaint } from "./context.js";
+import { setParams } from "./params.js";
 import { loadStyle } from 'tile-stencil';
 import { initSources } from "./sources.js";
 import { initRenderer } from "./renderer.js";
-import { initEventHandler } from "./events.js";
-import { initMapTransform } from "./map-transform.js";
 
 export function init(userParams) {
-  const gl = userParams.gl;
-  const { 
-    framebuffer = null,
-    framebufferSize = gl.canvas, // { width, height }
-    style, mapboxToken,
-  } = userParams;
-
-  const context = initGLpaint(gl, framebuffer, framebufferSize);
-  const eventHandler = initEventHandler();
+  const params = setParams(userParams);
 
   // Set up dummy API
   const api = {
-    gl,
-    size: framebufferSize,
+    gl: params.gl,
+    size: params.size, // TODO: make it read-only? Doesn't resize the framebuffer
+
     draw: () => null,
-    when: eventHandler.addListener,
+    when: params.eventHandler.addListener,
   };
 
+  // Extend with coordinate methods (SEE coords.js for API)
+  Object.assign(api, params.coords);
+
   // Get style document, parse
-  api.promise = loadStyle(style, mapboxToken)
-    .then( styleDoc => setup(styleDoc, context, eventHandler, api) );
+  api.promise = loadStyle(params.style, params.mapboxToken)
+    .then( styleDoc => setup(styleDoc, params, api) );
 
   return api;
 }
 
-function setup(styleDoc, context, eventHandler, api) {
-  const sources = initSources(styleDoc, context);
+function setup(styleDoc, params, api) {
+  const sources = initSources(styleDoc, params.context);
   sources.reporter.addEventListener("tileLoaded", 
-    () => eventHandler.emitEvent("tileLoaded"),
+    () => params.eventHandler.emitEvent("tileLoaded"),
     false);
 
-  const render = initRenderer(context, styleDoc);
-  const mapTransform = initMapTransform({ 
-    size: context.canvas, 
-    minTileSize: 512,
-  });
+  const render = initRenderer(params.context, styleDoc);
 
   api.draw = function(transform, pixRatio) {
-    const { width, height } = context.canvas;
-    const viewport = [width / pixRatio, height / pixRatio];
-    mapTransform.set(transform);
-    const rounded = mapTransform.getTransform();
+    api.setTransform(transform);
+    const rounded = api.getTransform();
+    const viewport = api.getViewport(pixRatio);
     const tilesets = sources.getTilesets(viewport, rounded, pixRatio);
 
     // Zoom for styling is always based on tilesize 512px (2^9) in CSS pixels

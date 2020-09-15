@@ -1,14 +1,17 @@
 import * as yawgl from 'yawgl';
 import * as d3 from 'd3';
 import * as vectorMap from "../../dist/vector-map.bundle.js";
-import * as projection from "../../src/proj-mercator.js";
 
 export function main() {
   const canvas = document.getElementById("mapCanvas");
+  yawgl.resizeCanvasToDisplaySize(canvas, window.devicePixelRatio);
+
   const gl = yawgl.getExtendedContext(canvas);
 
   vectorMap.init({
     gl,
+    center: [-73.885, 40.745],
+    zoom: 9,
     style: "mapbox://styles/mapbox/streets-v8",
     mapboxToken: "pk.eyJ1IjoiamhlbWJkIiwiYSI6ImNqcHpueHpyZjBlMjAzeG9kNG9oNzI2NTYifQ.K7fqhk2Z2YZ8NIV94M-5nA",
   }).promise.then(api => setup(api, canvas))
@@ -18,15 +21,10 @@ export function main() {
 function setup(api, canvas) {
   const viewport = [canvas.clientWidth, canvas.clientHeight];
 
-  const initTransform = getTransform({ 
-    center: [-73.885, 40.745], 
-    zoom: 9, 
-    viewport
-  });
-
+  const { k, x, y } = api.getTransform();
   var transform = d3.zoomIdentity
-    .translate(initTransform.x, initTransform.y)
-    .scale(initTransform.k);
+    .translate(x, y)
+    .scale(k);
 
   const zoomer = d3.zoom()
     .scaleExtent([1 << 10, 1 << 26])
@@ -56,15 +54,4 @@ function setup(api, canvas) {
 
     requestAnimationFrame(animate);
   }
-}
-
-function getTransform({ center: [lon, lat], zoom, viewport }) {
-  const degrees = 180 / Math.PI;
-
-  let k = 512 * 2 ** zoom;
-  let [x, y] = projection
-    .lonLatToXY([], [lon / degrees, lat / degrees])
-    .map((c, i) => (0.5 - c) * k + viewport[i] / 2);
-
-  return { k, x, y };
 }

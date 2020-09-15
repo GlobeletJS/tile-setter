@@ -1,10 +1,31 @@
-export function initMapTransform({ size, minTileSize = 256 }) {
+import * as projection from "./proj-mercator.js";
+
+export function initCoords({ size, center, zoom }) {
+  const degrees = 180 / Math.PI;
+  const minTileSize = 256;
+  const logTileSize = Math.log2(minTileSize);
+
   const transform = { k: 1, x: 0, y: 0 };
   const camPos = new Float64Array([0.5, 0.5]);
   const scale = new Float64Array([1.0, 1.0]);
-  const logTileSize = Math.log2(minTileSize);
 
-  function set(rawTransform) {
+  setCenterZoom(center, zoom);
+
+  return {
+    setTransform,
+    setCenterZoom,
+
+    getViewport,
+    getTransform: () => Object.assign({}, transform),
+    getCamPos: () => camPos.slice(),
+    getScale: () => scale.slice(),
+  };
+
+  function getViewport(pixRatio = 1) {
+    return [size.width / pixRatio, size.height / pixRatio];
+  }
+
+  function setTransform(rawTransform) {
     // Round raw values to ensure alignment with screen pixels
     const { k, x, y } = rawTransform;
 
@@ -31,23 +52,19 @@ export function initMapTransform({ size, minTileSize = 256 }) {
     // the center [0.5, 0.5] by the change in the translation due to rounding
     camPos[0] = 0.5 + (transform.x - sx) / size.width;
     camPos[1] = 0.5 + (transform.y - sy) / size.height;
+
+    // Store the scale of the current map relative to the entire world
     scale[0] = transform.k / size.width;
     scale[1] = transform.k / size.height;
   }
 
-  function setCenterZoom(center, zoom) {
-    // Convert lon/lat zoom to x/y/k
+  function setCenterZoom(c, z) {
+    let k = 512 * 2 ** z;
+    let [xr, yr] = projection.lonLatToXY([], c.map(x => x / degrees));
     
-    // Use these values to round and set the transform
+    let x = (0.5 - xr) * k + size.width / 2;
+    let y = (0.5 - yr) * k + size.height / 2;
+
+    return setTransform({ k, x, y });
   }
-
-  return {
-    set,
-    setCenterZoom,
-
-    getViewport: () => [size.width, size.height],
-    getTransform: () => Object.assign({}, transform),
-    getCamPos: () => camPos.slice(),
-    getScale: () => scale.slice(),
-  };
 }
