@@ -11,7 +11,7 @@ export function setParams(userParams) {
   const { 
     framebuffer = null,
     size = gl.canvas,
-    center = [0.5, 0.5],
+    center = [0.0, 0.0],
     zoom = 4,
     style,
     mapboxToken,
