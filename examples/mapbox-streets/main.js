@@ -14,12 +14,13 @@ export function main() {
     zoom: 9,
     style: "mapbox://styles/mapbox/streets-v8",
     mapboxToken: "pk.eyJ1IjoiamhlbWJkIiwiYSI6ImNqcHpueHpyZjBlMjAzeG9kNG9oNzI2NTYifQ.K7fqhk2Z2YZ8NIV94M-5nA",
-  }).promise.then(api => setup(api, canvas))
+  }).promise.then(setup)
     .catch(console.log);
 }
 
-function setup(api, canvas) {
-  const viewport = [canvas.clientWidth, canvas.clientHeight];
+function setup(api) {
+  const viewport = api.getViewport(window.devicePixelRatio);
+  const canvas = api.gl.canvas;
 
   const { k, x, y } = api.getTransform();
   var transform = d3.zoomIdentity
@@ -47,7 +48,8 @@ function setup(api, canvas) {
   function animate(time) {
     let pixRatio = window.devicePixelRatio;
     let resized = yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
-    const percent = api.draw(transform, pixRatio) * 100;
+    api.setTransform(transform);
+    const percent = api.draw(pixRatio) * 100;
     loadStatus.innerHTML = (percent < 100)
       ? "Loading: " + percent.toFixed(0) + "%"
       : "Complete! " + percent.toFixed(0) + "%";

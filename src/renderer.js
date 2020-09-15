@@ -11,19 +11,12 @@ export function initRenderer(context, style) {
   });
 
   function drawLayers(tilesets, zoom, pixRatio = 1) {
-    // TODO: move out to sources management?
-    const tilesetVals = Object.values(tilesets);
-    const loadStatus = tilesetVals.map(t => t.loaded)
-      .reduce((s, l) => s + l) / tilesetVals.length;
-
     context.bindFramebufferAndSetViewport();
     context.clear();
     painters.forEach(painter => {
       if (zoom < painter.minzoom || painter.maxzoom < zoom) return;
       drawLayer(painter, zoom, tilesets[painter.source], pixRatio);
     });
-
-    return loadStatus;
   }
 
   function drawLayer(painter, zoom, tileset, pixRatio) {

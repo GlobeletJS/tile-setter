@@ -9,8 +9,6 @@ export function init(userParams) {
   // Set up dummy API
   const api = {
     gl: params.gl,
-    size: params.size, // TODO: make it read-only? Doesn't resize the framebuffer
-
     draw: () => null,
     when: params.eventHandler.addListener,
   };
@@ -33,15 +31,20 @@ function setup(styleDoc, params, api) {
 
   const render = initRenderer(params.context, styleDoc);
 
-  api.draw = function(transform, pixRatio) {
-    api.setTransform(transform);
-    const rounded = api.getTransform();
+  api.draw = function(pixRatio) {
+    const transform = api.getTransform();
     const viewport = api.getViewport(pixRatio);
-    const tilesets = sources.getTilesets(viewport, rounded, pixRatio);
+
+    const tilesets = sources.getTilesets(viewport, transform, pixRatio);
+    const tilesetVals = Object.values(tilesets);
+    const loadStatus = tilesetVals.map(t => t.loaded)
+      .reduce((s, l) => s + l) / tilesetVals.length;
 
     // Zoom for styling is always based on tilesize 512px (2^9) in CSS pixels
     const zoom = Math.log2(transform.k) - 9;
-    return render(tilesets, zoom, pixRatio);
+    render(tilesets, zoom, pixRatio);
+
+    return loadStatus;
   }
 
   return api;
