@@ -31,7 +31,7 @@ function setup(styleDoc, params, api) {
 
   const render = initRenderer(params.context, styleDoc);
 
-  api.draw = function(pixRatio) {
+  api.draw = function(pixRatio = 1) {
     const transform = api.getTransform();
     const viewport = api.getViewport(pixRatio);
 

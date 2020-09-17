@@ -1012,6 +1012,8 @@ function initCoords({ size, center, zoom }) {
   }
 
   function setTransform(rawTransform) {
+    // Input transforms map coordinates [x, y] into viewport coordinates
+    // Units are in pixels
     const { k: kRaw, x: xRaw, y: yRaw } = rawTransform;
 
     // Round kRaw to ensure tile pixels align with screen pixels
@@ -1021,7 +1023,10 @@ function initCoords({ size, center, zoom }) {
     const kNew = 2 ** z0 * tileScale;
 
     // Adjust translation for the change in scale, and snap to pixel grid
-    const [sx, sy] = [xRaw, yRaw].map(w => w * kNew / kRaw);
+    const kScale = kNew / kRaw;
+    // Keep the same map pixel at the center of the viewport
+    const sx = kScale * xRaw + (1 - kScale) * size.width / 2;
+    const sy = kScale * yRaw + (1 - kScale) * size.height / 2;
     const [xNew, yNew] = [sx, sy].map(Math.round);
 
     // Make sure camera is still pointing at the original location: shift from 
@@ -7824,7 +7829,7 @@ function setup(styleDoc, params, api) {
 
   const render = initRenderer$1(params.context, styleDoc);
 
-  api.draw = function(pixRatio) {
+  api.draw = function(pixRatio = 1) {
     const transform = api.getTransform();
     const viewport = api.getViewport(pixRatio);
 
