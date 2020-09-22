@@ -1,8 +1,9 @@
 export function getTileMetric(layout, tileset, padding = 0.595) {
   const zoom = tileset[0][2];
   const nTiles = 2 ** zoom;
-  const tileLength = tileset.scale; // Length of one tile in pixels
-  const mapResolution = layout.tileSize() / tileLength;
+  const mapResolution = (zoom == 0) // Don't discard the world tile
+    ? Math.min(layout.tileSize() / tileset.scale, 1)
+    : layout.tileSize() / tileset.scale;
 
   function wrap(x, xmax) {
     while (x < 0) x += xmax;
@@ -14,9 +15,9 @@ export function getTileMetric(layout, tileset, padding = 0.595) {
   const [vpWidth, vpHeight] = layout.size();
   const pad = padding * mapResolution; // In tile units
   const x0 = wrap(-tileset.translate[0] - pad, nTiles);
-  const x1 = x0 + vpWidth / tileLength + 2 * pad; // May cross antimeridian
+  const x1 = x0 + vpWidth / tileset.scale + 2 * pad; // May cross antimeridian
   const y0 = -tileset.translate[1] - pad;
-  const y1 = y0 + vpHeight / tileLength + 2 * pad;
+  const y1 = y0 + vpHeight / tileset.scale + 2 * pad;
 
   return function(tile) {
     let zoomFac = 2 ** (zoom - tile.z);

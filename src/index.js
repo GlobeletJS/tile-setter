@@ -41,7 +41,7 @@ function setup(styleDoc, params, api) {
       .reduce((s, l) => s + l) / tilesetVals.length;
 
     // Zoom for styling is always based on tilesize 512px (2^9) in CSS pixels
-    const zoom = Math.log2(transform.k) - 9;
+    const zoom = Math.max(0, Math.log2(transform.k) - 9);
     render(tilesets, zoom, pixRatio);
 
     return loadStatus;
