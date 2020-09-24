@@ -1,4 +1,4 @@
-import { initGLpaint } from "./context.js";
+import { initGLpaint } from 'tile-gl';
 import { initEventHandler } from "./events.js";
 import { initCoords } from "./coords.js";
 

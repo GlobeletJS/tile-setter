@@ -31,8 +31,8 @@ function setup(api) {
     .scaleExtent([1 << 10, 1 << 26])
     .extent([[0, 0], viewport])
     .translateExtent([[-Infinity, -0.5], [Infinity, 0.5]])
-    .on("zoom", () => { 
-      transform = d3.event.transform;
+    .on("zoom", (event) => { 
+      transform = event.transform;
       //api.draw(transform);
     });
 
