@@ -1,6 +1,6 @@
 import * as projection from "./proj-mercator.js";
 
-export function initCoords({ size, center, zoom }) {
+export function initCoords({ size, center, zoom, clampY = true }) {
   const degrees = 180 / Math.PI;
   const minTileSize = 256;
   const logTileSize = Math.log2(minTileSize);
@@ -34,14 +34,20 @@ export function initCoords({ size, center, zoom }) {
     const z = Math.log2(kRaw) - logTileSize;
     const z0 = Math.floor(z);
     const tileScale = Math.round(2 ** (z - z0) * minTileSize);
-    const kNew = 2 ** z0 * tileScale;
+    const kNew = clampY
+      ? Math.max(2 ** z0 * tileScale, size.height)
+      : 2 ** z0 * tileScale;
 
     // Adjust translation for the change in scale, and snap to pixel grid
     const kScale = kNew / kRaw;
     // Keep the same map pixel at the center of the viewport
     const sx = kScale * xRaw + (1 - kScale) * size.width / 2;
     const sy = kScale * yRaw + (1 - kScale) * size.height / 2;
-    const [xNew, yNew] = [sx, sy].map(Math.round);
+    // Limit Y so the map doesn't cross a pole
+    const yLim = clampY
+      ? Math.min(Math.max(-kNew / 2 + size.height, sy), kNew / 2)
+      : sy;
+    const [xNew, yNew] = [sx, yLim].map(Math.round);
 
     // Make sure camera is still pointing at the original location: shift from 
     // the center [0.5, 0.5] by the change in the translation due to rounding

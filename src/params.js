@@ -15,6 +15,7 @@ export function setParams(userParams) {
     zoom = 4,
     style,
     mapboxToken,
+    clampY = true,
   } = userParams;
 
   if (!(framebuffer instanceof WebGLFramebuffer) && framebuffer !== null) {
@@ -35,7 +36,7 @@ export function setParams(userParams) {
 
   return {
     gl, framebuffer, size,
-    coords: initCoords({ size, center, zoom }),
+    coords: initCoords({ size, center, zoom, clampY }),
     style, mapboxToken,
     context: initGLpaint(gl, framebuffer, size),
     eventHandler: initEventHandler(),

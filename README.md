@@ -34,6 +34,9 @@ The supplied parameters object has the following properties:
 - `zoom`: The initial zoom of the map. Default: 4
 - `style` (REQUIRED): A link to a Mapbox style document
 - `mapboxToken`: Your API token for Mapbox services (if needed)
+- `clampY`: If true (default), the scale and Y-coordinate of the map will be
+  adjusted to ensure the viewport is not crossing the North or South limits of
+  the world map
 
 [yawgl]: https://github.com/GlobeletJS/yawgl
 [WebGLFramebuffer]: https://developer.mozilla.org/en-US/docs/Web/API/WebGLFramebuffer
