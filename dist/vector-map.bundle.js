@@ -756,6 +756,7 @@ uniform mat3 projection;
 attribute vec2 position;
 attribute vec3 pointA, pointB, pointC, pointD;
 
+varying float yCoord;
 varying vec2 miterCoord1, miterCoord2;
 
 mat3 miterTransform(vec2 xHat, vec2 yHat, vec2 v) {
@@ -800,7 +801,9 @@ void main() {
 
   // Find the position of the current instance vertex, in 3 coordinate systems
   vec2 extend = miterLimit * xBasis * lineWidth * (position.x - 0.5);
-  vec2 point = pointB.xy + xAxis * position.x + yBasis * lineWidth * position.y + extend;
+  // Add one pixel on either side of the line for the anti-alias taper
+  yCoord = (lineWidth + 2.0) * position.y;
+  vec2 point = pointB.xy + xAxis * position.x + yBasis * yCoord + extend;
   miterCoord1 = (m1 * vec3(point - pointB.xy, 1)).xy;
   miterCoord2 = (m2 * vec3(point - pointC.xy, 1)).xy; 
 
@@ -812,17 +815,25 @@ void main() {
 
 var strokeFragSrc = `precision highp float;
 uniform vec4 strokeStyle;
-uniform float globalAlpha;
+uniform float lineWidth, globalAlpha;
+
+varying float yCoord;
 varying vec2 miterCoord1, miterCoord2;
 
 void main() {
-  vec2 step1 = fwidth(miterCoord1);
-  vec2 step2 = fwidth(miterCoord2);
+  float step0 = fwidth(yCoord) * 0.707;
+  vec2 step1 = fwidth(miterCoord1) * 0.707;
+  vec2 step2 = fwidth(miterCoord2) * 0.707;
+
+  // Antialiasing for edges of lines
+  float outside = -0.5 * lineWidth - step0;
+  float inside = -0.5 * lineWidth + step0;
+  float antialias = smoothstep(outside, inside, -abs(yCoord));
 
   // Bevels, endcaps: Use smooth taper for antialiasing
   float taperx = 
-    smoothstep(-0.5 * step1.x, 0.5 * step1.x, miterCoord1.x) *
-    smoothstep(-0.5 * step2.x, 0.5 * step2.x, miterCoord2.x);
+    smoothstep(-step1.x, step1.x, miterCoord1.x) *
+    smoothstep(-step2.x, step2.x, miterCoord2.x);
 
   // Miters: Use hard step, slightly shifted to avoid overlap at center
   float tapery = 
@@ -830,7 +841,7 @@ void main() {
     step(0.01 * step2.y, miterCoord2.y);
 
   vec4 premult = vec4(strokeStyle.rgb * strokeStyle.a, strokeStyle.a);
-  gl_FragColor = premult * globalAlpha * taperx * tapery;
+  gl_FragColor = premult * globalAlpha * antialias * taperx * tapery;
 }
 `;
 
