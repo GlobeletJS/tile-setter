@@ -15,7 +15,7 @@ export function initSources(style, context) {
   const getters = Object.entries(sources).reduce((dict, [key, source]) => {
     let loader;
     if(source.type === "vector"){loader = initVectorLoader(key, source);}
-    if(source.type === "geojson"){loader = initVectorLoader(key, source);}
+    if(source.type === "geojson"){loader = initGeojsonLoader(key, source);}
     if(source.type === "raster"){loader = initRasterLoader(source);}
     let tileFactory = buildFactory({ source, loader, reporter });
     dict[key] = initSource({ source, tileFactory });
@@ -31,6 +31,22 @@ export function initSources(style, context) {
       glyphs, 
       source, 
       layers: subset, 
+      queue,
+    });
+    workerMonitors.push(loader.workerTasks);
+    return loader;
+  }
+
+  function initGeojsonLoader(key, source) {
+    let subset = layers.filter(
+      l => l.source === key && l.type !== "fill-extrusion"
+    );
+    let loader = initTileMixer({
+      context,
+      threads: 1,
+      glyphs,
+      source,
+      layers: subset,
       queue,
     });
     workerMonitors.push(loader.workerTasks);
