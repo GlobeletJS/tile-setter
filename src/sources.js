@@ -3,7 +3,6 @@ import { initRasterLoader } from "./raster.js";
 import { buildFactory } from "./factory.js";
 import { initTileMixer } from 'tile-mixer';
 import { initSource } from "./source.js";
-import geojsonvt from 'geojson-vt';
 
 export function initSources(style, context) {
   const { glyphs, sources, layers } = style;

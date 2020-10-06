@@ -1002,13 +1002,25 @@ function expandGlyphURL(url, token) {
   return url.replace(prefix, apiRoot) + "?access_token=" + token;
 }
 
-function getJSON(dataHref) {
-  // Wrap the fetch API to force a rejected promise if response is not OK
-  const checkResponse = (response) => (response.ok)
-    ? response.json()
-    : Promise.reject(response); // Can check .status on returned response
+function getJSON(data) {
+  switch (typeof data) {
+    case "object":
+      // data may be GeoJSON already. Confirm and return
+      return (data !== null && data.type)
+        ? Promise.resolve(data)
+        : Promise.reject(data);
 
-  return fetch(dataHref).then(checkResponse);
+    case "string":
+      // data must be a URL
+      return fetch(data).then(response => {
+        return (response.ok)
+          ? response.json()
+          : Promise.reject(response);
+      });
+
+    default:
+      return Promise.reject(data);
+  }
 }
 
 function getImage(href) {
@@ -1365,7 +1377,8 @@ function expandSources(rawSources, token) {
     // If no .url, return a shallow copy of the input. 
     // Note: some properties may still be pointing back to the original 
     // style document, like .vector_layers, .bounds, .center, .extent
-    if (source.type === "geojson") return getJSON(source.data).then(JSON => [key,Object.assign(JSON, source)]);
+    if (source.type === "geojson") return getJSON(source.data)
+      .then(JSON => [key,Object.assign(JSON, source)]);
     if (source.url === undefined) return [key, Object.assign({}, source)];
 
     // Load the referenced TileJSON document, add any values from source
@@ -1724,32 +1737,22 @@ function setParams(userParams) {
   let sameSource = layers.every( l => l.source === layers[0].source );
   if (!sameSource) fail$1("supplied layers use different sources!");
 
-  // Construct function to get a tile URL
   if (!source) fail$1("parameters.source is required!");
-  if(source.type === "vector"){
-    const getURL = initUrlFunc$1(source.tiles);
 
-    return {
-      context,
-      threads,
-      glyphs,
-      getURL,
-      layers,
-      queue,
-      verbose,
-    };
-  }
-  if(source.type === "geojson"){
-    return {
-      context,
-      threads,
-      glyphs,
-      layers,
-      source,
-      queue,
-      verbose,
-    };
-  }
+  const params = {
+    context,
+    threads,
+    glyphs,
+    layers,
+    queue,
+    verbose,
+  };
+
+  // Construct function to get a tile URL
+  if (source.type === "vector") params.getURL = initUrlFunc$1(source.tiles);
+  if (source.type === "geojson") params.source = source;
+
+  return params;
 }
 
 function initUrlFunc$1(endpoints) {
@@ -1778,7 +1781,7 @@ function initWorkers(codeHref, params) {
   // Initialize the worker threads, and send them the styles
   function trainWorker() {
     const worker = new Worker(codeHref);
-    const payload = { styles: layers, glyphEndpoint: glyphs, source: source };
+    const payload = { styles: layers, glyphEndpoint: glyphs, source };
     worker.postMessage({ id: 0, type: "setup", payload });
     worker.onmessage = handleMsg;
     return worker;
@@ -5669,13 +5672,6 @@ earcut.flatten = function (data) {
 };
 earcut_1.default = default_1;
 
-function parseLine(feature) {
-  const { geometry, properties } = feature;
-  const buffers = { points: flattenLine(geometry) };
-
-  return { properties, buffers };
-}
-
 function flattenLine(geometry) {
   let { type, coordinates } = geometry;
 
@@ -5746,6 +5742,52 @@ function triangulate(feature) {
   };
 
   return { properties, buffers };
+}
+
+function parseLine(feature) {
+  const { geometry, properties } = feature;
+  const buffers = { points: flattenLine$1(geometry) };
+
+  return { properties, buffers };
+}
+
+function flattenLine$1(geometry) {
+  let { type, coordinates } = geometry;
+
+  switch (type) {
+    case "LineString":
+      return flattenLineString$1(coordinates);
+    case "MultiLineString":
+      return coordinates.flatMap(flattenLineString$1);
+    case "Polygon":
+      return flattenPolygon$1(coordinates);
+    case "MultiPolygon":
+      return coordinates.flatMap(flattenPolygon$1);
+    default:
+      return;
+  }
+}
+
+function flattenLineString$1(line) {
+  return [
+    ...[...line[0], -2.0],
+    ...line.flatMap(([x, y]) => [x, y, 0.0]),
+    ...[...line[line.length - 1], -2.0]
+  ];
+}
+
+function flattenPolygon$1(rings) {
+  return rings.flatMap(flattenLinearRing$1);
+}
+
+function flattenLinearRing$1(ring) {
+  // Definition of linear ring:
+  // ring.length > 3 && ring[ring.length - 1] == ring[0]
+  return [
+    ...[...ring[ring.length - 2], -2.0],
+    ...ring.flatMap(([x, y]) => [x, y, 0.0]),
+    ...[...ring[1], -2.0]
+  ];
 }
 
 function initFeatureGrouper(style) {
@@ -6924,9 +6966,12 @@ function xhrGet(href, type, callback) {
   return req; // Request can be aborted via req.abort()
 }
 
-function readGeojsonVT(index, layerID, x, y, z, callback){
+function readGeojsonVT(index, layerID, x, y, z, callback) {
+  // TODO: does geojson-vt always return only one layer?
 
   var tile = index.getTile(z,x,y);
+
+  // TODO: is tile.features an array? If so, can we use a map statement here?
   var jsonTile = [];
   if (tile && tile !== "null" && tile !== "undefined" && tile.features.length > 0) {
     for (let i = 0; i < tile.features.length; i++) {
@@ -6944,46 +6989,31 @@ function readGeojsonVT(index, layerID, x, y, z, callback){
     setTimeout(() => callback(errMsg));
   }
 
-  function abort() {
-  }
-  return { abort };
+  return { abort: () => undefined };
 }
 
-function geojsonvtToJSON (value){
+function geojsonvtToJSON (value) {
   //http://www.scgis.net/api/ol/v4.1.1/examples/geojson-vt.html
-  if (value.geometry) {
-    var type;
-    var rawType = value.type;
-    var geometry = value.geometry;
+  if (!value.geometry) return value;
 
-    if (rawType === 1) {
-      type = geometry.length === 1 ? 'Point' : 'MultiPoint';
-    } else if (rawType === 2) {
-      type = geometry.length === 1 ? 'LineString' : 'MultiLineString';
-    } else if (rawType === 3) {
-      type = geometry.length === 1 ? 'Polygon' : 'MultiPolygon';
-    }
+  const geometry = value.geometry;
 
-    if (rawType === 1) {
-      return {
-        geometry: {
-          type: type,
-          coordinates: geometry.length == 1 ? geometry[0] : [geometry]
-        },
-        properties: value.tags
-      };
-    } else {
-      return {
-        geometry: {
-          type: type,
-          coordinates: geometry.length == 1 ? geometry : [geometry]
-        },
-        properties: value.tags
-      };
-    }
-  } else {
-    return value;
-  }
+  const types = ['Unknown', 'Point', 'Linestring', 'Polygon'];
+
+  // TODO: What if geometry.length < 1?
+  const type = (geometry.length === 1)
+    ? types[value.type]
+    : 'Multi' + types[value.type];
+
+  const coordinates = 
+    (geometry.length != 1) ? [geometry]
+    : (type === 'MultiPoint') ? geometry[0]
+    : geometry;
+
+  return {
+    geometry: { type, coordinates },
+    properties: value.tags
+  };
 }
 
 // calculate simplification data using optimized Douglas-Peucker algorithm
@@ -7885,18 +7915,26 @@ onmessage = function(msgEvent) {
     case "setup":
       // NOTE: changing global variable!
       filter = initSourceProcessor(payload);
-      if(payload.source.type === "geojson"){
-        tileIndex = geojsonvt({"type":"FeatureCollection", "features":payload.source.features}, {extent: 512, maxZoom:14, minZoom:0});
+      if (payload.source.type === "geojson") {
+        tileIndex = geojsonvt({
+          "type": "FeatureCollection",
+          "features": payload.source.features
+        }, {
+          extent: 512,
+          maxZoom: 14,
+          minZoom: 0,
+        });
       }
       break;
     case "getTile":
       let callback = (err, result) => process(id, err, result, payload.zoom);
       let request = {};
-      if(payload.type === "vector"){
+      if (payload.type === "vector") {
         request = readMVT(payload.href, payload.size, callback);
       }
-      if(payload.type === "geojson"){
-        request = readGeojsonVT(tileIndex, payload.layerID, payload.tileX, payload.tileY, payload.zoom, callback);
+      if (payload.type === "geojson") {
+        request = readGeojsonVT(tileIndex, payload.layerID, 
+          payload.tileX, payload.tileY, payload.zoom, callback);
       }
       tasks[id] = { request, status: "requested" };
       break;
@@ -7957,26 +7995,25 @@ function initTileMixer(userParams) {
     const reqHandle = {};
 
     var readInfo ={};
-    if(userParams.source.type === "vector"){
+    if (userParams.source.type === "vector") {
       readInfo = { 
         type: "vector",
         href: params.getURL(z, x, y),
         size: 512, 
         zoom: z 
       };
-    }
-
-    if(userParams.source.type === "geojson"){
+    } else if (userParams.source.type === "geojson") {
       readInfo = {
         type: "geojson",
         source: userParams.source,
         layerID: userParams.layers[0].id,
-        size:512,
+        size: 512,
         tileX: x,
         tileY: y,
         zoom: z
       };
     }
+
     const readTaskId = workers.startTask(readInfo, prepData);
     reqHandle.abort = () => workers.cancelTask(readTaskId);
 
@@ -8094,6 +8131,7 @@ function constant(x) {
 }
 
 function tile() {
+  const minZoom = 0;
   let maxZoom = 30;
   let x0 = 0, y0 = 0, x1 = 960, y1 = 500;
   let clampX = true, clampY = true;
@@ -8106,7 +8144,7 @@ function tile() {
     const scale_ = +scale.apply(this, arguments);
     const translate_ = translate.apply(this, arguments);
     const z = Math.log2(scale_ / tileSize);
-    const z0 = Math.round(Math.min(z + zoomDelta, maxZoom));
+    const z0 = Math.round( Math.min(Math.max(minZoom, z + zoomDelta), maxZoom) );
     const k = Math.pow(2, z - z0) * tileSize;
     const x = +translate_[0] - scale_ / 2;
     const y = +translate_[1] - scale_ / 2;
