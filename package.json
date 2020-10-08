@@ -1,6 +1,6 @@
 {
   "name": "tile-map",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Tiled vector map powered by a lightweight WebGL renderer",
   "main": "dist/tile-map.bundle.js",
   "directories": {
