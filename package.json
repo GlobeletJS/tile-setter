@@ -30,15 +30,15 @@
   },
   "homepage": "https://github.com/GlobeletJS/vector-map#readme",
   "devDependencies": {
-    "d3": "^5.16.0",
-    "gl-matrix": "^3.3.0",
-    "rollup": "^2.26.11",
+    "d3": "^6.2.0",
+    "rollup": "^2.28.2",
     "rollup-plugin-node-resolve": "^5.2.0",
     "yawgl": "^0.2.0"
   },
   "dependencies": {
     "chunked-queue": "^0.1.2",
     "d3-tile": "github:GlobeletJS/d3-tile",
+    "tile-gl": "0.0.3",
     "tile-mixer": "github:GlobeletJS/tile-mixer",
     "tile-painter": "github:GlobeletJS/tile-painter#webgl",
     "tile-rack": "^1.0.1",

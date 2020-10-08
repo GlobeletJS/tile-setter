@@ -15,6 +15,7 @@ body {
 #mapCanvas {
   width: 100%;
   height: 100%;
+  display: block;
   background-color: gray;
   position: relative;
 }
@@ -25,10 +26,13 @@ body {
   right: 0;
   padding: 0 4px 0 4px;
 }
-.loadStatus {
-  background: rgba(255, 255, 255, 0.8);
+#loadStatus {
   position: absolute;
   top: 0;
   right: 0;
+  width: 15ch;
+  text-align: right;
+  background: rgba(60, 60, 60, 0.5);
+  color: white;
   padding: 0 4px 0 4px;
 }
