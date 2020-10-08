@@ -1,4 +1,4 @@
-# vector-map
+# tile-map
 
 Tiled vector map powered by a lightweight WebGL renderer
 
@@ -6,18 +6,18 @@ Rendering is guided by a [Mapbox style document]. See a simple
 [example] using a style from [OpenMapTiles].
 
 [Mapbox style document]: https://docs.mapbox.com/mapbox-gl-js/style-spec/
-[example]: https://globeletjs.github.io/vector-map/examples/klokan-basic/index.html
+[example]: https://globeletjs.github.io/tile-map/examples/klokan-basic/index.html
 [OpenMapTiles]: https://openmaptiles.org/styles/
 
 ## Installation
-vector-map is provided as an ESM import
+tile-map is provided as an ESM import
 ```javascript
-import * as vectorMap from 'vector-map';
+import * as tileMap from 'tile-map';
 ```
 
 ## Syntax
 ```javascript
-const map = vectorMap.init(params);
+const map = tileMap.init(params);
 ```
 
 ## Parameters

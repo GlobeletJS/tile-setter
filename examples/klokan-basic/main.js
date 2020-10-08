@@ -1,6 +1,6 @@
 import * as yawgl from 'yawgl';
 import * as d3 from 'd3';
-import * as vectorMap from "../../dist/vector-map.bundle.js";
+import * as tileMap from "../../dist/tile-map.bundle.js";
 
 export function main() {
   const canvas = document.getElementById("mapCanvas");
@@ -8,7 +8,7 @@ export function main() {
 
   const gl = yawgl.getExtendedContext(canvas);
 
-  vectorMap.init({ 
+  tileMap.init({ 
     gl,
     center: [-73.885, 40.745],
     zoom: 9,

@@ -1,5 +1,5 @@
 import * as yawgl from 'yawgl';
-import * as vectorMap from "../../dist/vector-map.bundle.js";
+import * as tileMap from "../../dist/tile-map.bundle.js";
 
 export function main() {
   const canvas = document.getElementById("mapCanvas");
@@ -7,7 +7,7 @@ export function main() {
 
   const gl = yawgl.getExtendedContext(canvas);
 
-  vectorMap.init({ gl, style: "./klokantech-basic-style.json" })
+  tileMap.init({ gl, style: "./klokantech-basic-style.json" })
     .promise.then(setup)
     .catch(console.log);
 }
