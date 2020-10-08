@@ -12,9 +12,9 @@ export function initSources(style, context) {
   const reporter = document.createElement("div");
 
   const getters = Object.entries(sources).reduce((dict, [key, source]) => {
-    let loader = (source.type === "vector")
-      ? initVectorLoader(key, source)
-      : initRasterLoader(source);
+    let loader = (source.type === "raster")
+      ? initRasterLoader(source)
+      : initVectorLoader(key, source);
     let tileFactory = buildFactory({ source, loader, reporter });
     dict[key] = initSource({ source, tileFactory });
     return dict;
@@ -24,13 +24,16 @@ export function initSources(style, context) {
     let subset = layers.filter(
       l => l.source === key && l.type !== "fill-extrusion"
     );
+
     let loader = initTileMixer({
       context,
-      glyphs, 
-      source, 
-      layers: subset, 
+      threads: (source.type === "geojson") ? 1 : 2,
+      glyphs,
+      source,
+      layers: subset,
       queue,
     });
+
     workerMonitors.push(loader.workerTasks);
     return loader;
   }

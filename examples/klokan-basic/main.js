@@ -32,15 +32,11 @@ function setup(api) {
     .translateExtent([[-Infinity, -0.5], [Infinity, 0.5]])
     .on("zoom", (event) => { 
       transform = event.transform;
-      //api.draw(transform);
     });
 
   d3.select(canvas)
     .call(zoomer)
     .call(zoomer.transform, transform);
-
-  //api.draw(transform);
-  //api.when("tileLoaded", () => api.draw(transform));
 
   requestAnimationFrame(animate);
   function animate(time) {

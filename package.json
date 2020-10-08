@@ -31,7 +31,7 @@
   "homepage": "https://github.com/GlobeletJS/vector-map#readme",
   "devDependencies": {
     "d3": "^6.2.0",
-    "rollup": "^2.6.1",
+    "rollup": "^2.28.2",
     "rollup-plugin-node-resolve": "^5.2.0",
     "yawgl": "^0.2.0"
   },
@@ -42,6 +42,6 @@
     "tile-mixer": "github:GlobeletJS/tile-mixer",
     "tile-painter": "github:GlobeletJS/tile-painter#webgl",
     "tile-rack": "^1.0.1",
-    "tile-stencil": "^0.2.3"
+    "tile-stencil": "^0.2.4"
   }
 }

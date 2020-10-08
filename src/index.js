@@ -45,7 +45,7 @@ function setup(styleDoc, params, api) {
     render(tilesets, zoom, pixRatio);
 
     return loadStatus;
-  }
-
+  };
+  
   return api;
 }

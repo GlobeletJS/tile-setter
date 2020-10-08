@@ -1237,13 +1237,25 @@ function expandGlyphURL(url, token) {
   return url.replace(prefix, apiRoot) + "?access_token=" + token;
 }
 
-function getJSON(dataHref) {
-  // Wrap the fetch API to force a rejected promise if response is not OK
-  const checkResponse = (response) => (response.ok)
-    ? response.json()
-    : Promise.reject(response); // Can check .status on returned response
+function getJSON(data) {
+  switch (typeof data) {
+    case "object":
+      // data may be GeoJSON already. Confirm and return
+      return (data !== null && data.type)
+        ? Promise.resolve(data)
+        : Promise.reject(data);
 
-  return fetch(dataHref).then(checkResponse);
+    case "string":
+      // data must be a URL
+      return fetch(data).then(response => {
+        return (response.ok)
+          ? response.json()
+          : Promise.reject(response);
+      });
+
+    default:
+      return Promise.reject(data);
+  }
 }
 
 function getImage(href) {
@@ -1981,6 +1993,8 @@ function expandSources(rawSources, token) {
     // If no .url, return a shallow copy of the input. 
     // Note: some properties may still be pointing back to the original 
     // style document, like .vector_layers, .bounds, .center, .extent
+    if (source.type === "geojson") return getJSON(source.data)
+      .then(JSON => [key,Object.assign(JSON, source)]);
     if (source.url === undefined) return [key, Object.assign({}, source)];
 
     // Load the referenced TileJSON document, add any values from source
@@ -2314,6 +2328,7 @@ function setParams$1(userParams) {
   const params = {
     context,
     threads,
+    source,
     glyphs,
     layers,
     queue,
@@ -2322,7 +2337,6 @@ function setParams$1(userParams) {
 
   // Construct function to get a tile URL
   if (source.type === "vector") params.getURL = initUrlFunc$1(source.tiles);
-  if (source.type === "geojson") params.source = source;
 
   return params;
 }
@@ -8886,9 +8900,9 @@ function initSources(style, context) {
   const reporter = document.createElement("div");
 
   const getters = Object.entries(sources).reduce((dict, [key, source]) => {
-    let loader = (source.type === "vector")
-      ? initVectorLoader(key, source)
-      : initRasterLoader(source);
+    let loader = (source.type === "raster")
+      ? initRasterLoader(source)
+      : initVectorLoader(key, source);
     let tileFactory = buildFactory({ source, loader, reporter });
     dict[key] = initSource({ source, tileFactory });
     return dict;
@@ -8898,13 +8912,16 @@ function initSources(style, context) {
     let subset = layers.filter(
       l => l.source === key && l.type !== "fill-extrusion"
     );
+
     let loader = initTileMixer({
       context,
-      glyphs, 
-      source, 
-      layers: subset, 
+      threads: (source.type === "geojson") ? 1 : 2,
+      glyphs,
+      source,
+      layers: subset,
       queue,
     });
+
     workerMonitors.push(loader.workerTasks);
     return loader;
   }
@@ -9271,7 +9288,7 @@ function setup(styleDoc, params, api) {
 
     return loadStatus;
   };
-
+  
   return api;
 }
 

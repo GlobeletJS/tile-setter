@@ -12,8 +12,7 @@ export function main() {
     gl,
     center: [-73.885, 40.745],
     zoom: 9,
-    style: "mapbox://styles/mapbox/streets-v8",
-    mapboxToken: "pk.eyJ1IjoiamhlbWJkIiwiYSI6ImNqcHpueHpyZjBlMjAzeG9kNG9oNzI2NTYifQ.K7fqhk2Z2YZ8NIV94M-5nA",
+    style: "klokantech-basic-style-geojson.json",
   }).promise.then(setup)
     .catch(console.log);
 }
