@@ -1,4 +1,4 @@
-# tile-map
+# tile-setter
 
 Tiled vector map powered by a lightweight WebGL renderer
 
@@ -6,18 +6,18 @@ Rendering is guided by a [Mapbox style document]. See a simple
 [example] using a style from [OpenMapTiles].
 
 [Mapbox style document]: https://docs.mapbox.com/mapbox-gl-js/style-spec/
-[example]: https://globeletjs.github.io/tile-map/examples/klokan-basic/index.html
+[example]: https://globeletjs.github.io/tile-setter/examples/klokan-basic/index.html
 [OpenMapTiles]: https://openmaptiles.org/styles/
 
 ## Installation
-tile-map is provided as an ESM import
+tile-setter is provided as an ESM import
 ```javascript
-import * as tileMap from 'tile-map';
+import * as tileSetter from 'tile-setter';
 ```
 
 ## Syntax
 ```javascript
-const map = tileMap.init(params);
+const map = tileSetter.init(params);
 ```
 
 ## Parameters
