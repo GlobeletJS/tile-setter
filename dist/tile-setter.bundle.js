@@ -472,6 +472,7 @@ function initUniforms(transform) {
     fontScale: 1.0,
     sdf: null,
     sdfDim: [256, 256],
+    circleRadius: 5.0,
   };
 
   // Mimic Canvas2D API
@@ -497,6 +498,9 @@ function initUniforms(transform) {
     },
     set fontSize(val) {
       uniforms.fontScale = val / 24.0; // TODO: get divisor from sdf-manager?
+    },
+    set circleRadius(val) {
+      uniforms.circleRadius = val;
     },
     // TODO: implement dashed lines, patterns
     setLineDash: () => null,
@@ -845,10 +849,48 @@ void main() {
 }
 `;
 
+var circleVertSrc = `precision highp float;
+
+attribute vec2 quadPos; // Vertices of the quad instance
+attribute vec2 circlePos;
+
+uniform mat3 projection;
+uniform float circleRadius;
+
+varying vec2 delta;
+
+void main() {
+  float extend = 2.0; // Extra space in the quad for tapering
+  delta = (circleRadius + extend) * quadPos;
+  vec2 vPos = circlePos + delta;
+
+  vec2 projected = (projection * vec3(vPos, 1)).xy;
+  gl_Position = vec4(projected, 0, 1);
+}
+`;
+
+var circleFragSrc = `precision mediump float;
+
+uniform highp float circleRadius;
+uniform vec4 fillStyle;
+uniform float globalAlpha;
+
+varying vec2 delta;
+
+void main() {
+  float radius = length(delta);
+  float dr = fwidth(radius);
+
+  float taper = 1.0 - smoothstep(circleRadius - dr, circleRadius + dr, radius);
+  gl_FragColor = fillStyle * globalAlpha * taper;
+}
+`;
+
 function initPrograms(gl, uniforms) {
   const textProgram = initProgram(gl, textVertSrc, textFragSrc);
   const fillProgram = initProgram(gl, fillVertSrc, fillFragSrc);
   const strokeProgram = initProgram(gl, strokeVertSrc, strokeFragSrc);
+  const circleProgram = initProgram(gl, circleVertSrc, circleFragSrc);
 
   function fillText(buffers) {
     let { textVao, numInstances } = buffers;
@@ -871,14 +913,23 @@ function initPrograms(gl, uniforms) {
     gl.bindVertexArray(null);
   }
 
+  function fillCircle(buffers) {
+    let { circleVao, numInstances } = buffers;
+    circleProgram.setupDraw({ uniforms, vao: circleVao });
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, numInstances);
+    gl.bindVertexArray(null);
+  }
+
   return {
     fillText,
     fill,
     stroke,
+    fillCircle,
 
     constructTextVao: textProgram.constructVao,
     constructFillVao: fillProgram.constructVao,
     constructStrokeVao: strokeProgram.constructVao,
+    constructCircleVao: circleProgram.constructVao,
   };
 }
 
@@ -2171,8 +2222,9 @@ function buildFactory({ source, loader, reporter }) {
   } = source;
 
   // Convert bounds to Web Mercator (the projection ASSUMED by tilejson-spec)
-  let [xmin, ymax] = lonLatToXY([], bounds.slice(0, 2));
-  let [xmax, ymin] = lonLatToXY([], bounds.slice(2, 4));
+  const radianBounds = bounds.map(c => c * Math.PI / 180.0);
+  let [xmin, ymax] = lonLatToXY([], radianBounds.slice(0, 2));
+  let [xmax, ymin] = lonLatToXY([], radianBounds.slice(2, 4));
   if (scheme === "tms") [ymin, ymax] = [ymax, ymin];
 
   return function(z, x, y) {
@@ -2593,6 +2645,50 @@ function initTextBufferLoader(context) {
   };
 }
 
+function initCircleBufferLoader(context) {
+  const { gl, constructCircleVao } = context;
+
+  // Create a buffer with the position of the vertices within one instance
+  const instanceGeom = new Float32Array([
+    -1.0, -1.0,   1.0, -1.0,   1.0,  1.0,
+    -1.0, -1.0,   1.0,  1.0,  -1.0,  1.0,
+  ]);
+
+  const quadPos = {
+    buffer: gl.createBuffer(),
+    numComponents: 2,
+    type: gl.FLOAT,
+    normalize: false,
+    stride: 0,
+    offset: 0,
+    divisor: 0,
+  };
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadPos.buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, instanceGeom, gl.STATIC_DRAW);
+
+  return function(buffers) {
+    const { origins } = buffers;
+    const numInstances = origins.length / 2;
+
+    const circlePos = {
+      buffer: gl.createBuffer(),
+      numComponents: 2,
+      type: gl.FLOAT,
+      normalize: false,
+      stride: 0,
+      offset: 0,
+      divisor: 1,
+    };
+    gl.bindBuffer(gl.ARRAY_BUFFER, circlePos.buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, origins, gl.STATIC_DRAW);
+
+    const attributes = { quadPos, circlePos };
+    const circleVao = constructCircleVao({ attributes });
+
+    return { circleVao, numInstances };
+  };
+}
+
 function initAtlasLoader(context) {
   const { gl } = context;
 
@@ -2625,10 +2721,11 @@ function initDataPrep(styles, context) {
   const lineLoader = initLineBufferLoader(context);
   const fillLoader = initFillBufferLoader(context, lineLoader);
   const textLoader = initTextBufferLoader(context);
+  const circleLoader = initCircleBufferLoader(context);
   const loadAtlas  = initAtlasLoader(context);
 
   const pathFuncs = {
-    "circle": () => undefined, // TODO
+    "circle": makePathAdder(circleLoader),
     "line": makePathAdder(lineLoader),
     "fill": makePathAdder(fillLoader),
     "symbol": makePathAdder(textLoader), // TODO: add sprite handling
@@ -6376,6 +6473,26 @@ function flattenLinearRing$1(ring) {
   ];
 }
 
+function parseCircle(feature) {
+  const { geometry, properties } = feature;
+  const buffers = { origins: flattenCircles(geometry) };
+
+  return { properties, buffers };
+}
+
+function flattenCircles(geometry) {
+  const { type, coordinates } = geometry;
+
+  switch (type) {
+    case "Point":
+      return coordinates;
+    case "MultiPoint":
+      return coordinates.flat();
+    default:
+      return;
+  }
+}
+
 function initFeatureGrouper(style) {
   // Find the names of the feature properties that affect rendering
   const renderPropertyNames = Object.values(style.paint)
@@ -6469,7 +6586,7 @@ function initProcessor(styles) {
     let { id, type } = style;
 
     dict[id] =
-      (type === "circle") ? null // TODO
+      (type === "circle") ? parseCircle
       : (type === "line") ? parseLine
       : (type === "fill") ? triangulate
       : null;
@@ -9013,16 +9130,12 @@ function makePatternSetter(sprite) {
 }
 
 function initCircle(layout, paint) {
-  const setRadius = (radius, ctx, scale = 1) => {
-    ctx.lineWidth = radius * 2 / scale;
-  };
   const setters = [
-    pair(paint["circle-radius"],  setRadius),
-    pair(paint["circle-color"],   canv("strokeStyle")),
+    pair(paint["circle-radius"],  scaleCanv("circleRadius")),
+    pair(paint["circle-color"],   canv("fillStyle")),
     pair(paint["circle-opacity"], canv("globalAlpha")),
-    pair(() => "round",           canv("lineCap")),
   ];
-  const methods = ["stroke"];
+  const methods = ["fillCircle"];
 
   return initBrush({ setters, methods });
 }

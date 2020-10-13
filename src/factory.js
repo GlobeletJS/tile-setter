@@ -9,8 +9,9 @@ export function buildFactory({ source, loader, reporter }) {
   } = source;
 
   // Convert bounds to Web Mercator (the projection ASSUMED by tilejson-spec)
-  let [xmin, ymax] = projection.lonLatToXY([], bounds.slice(0, 2));
-  let [xmax, ymin] = projection.lonLatToXY([], bounds.slice(2, 4));
+  const radianBounds = bounds.map(c => c * Math.PI / 180.0);
+  let [xmin, ymax] = projection.lonLatToXY([], radianBounds.slice(0, 2));
+  let [xmax, ymin] = projection.lonLatToXY([], radianBounds.slice(2, 4));
   if (scheme === "tms") [ymin, ymax] = [ymax, ymin];
 
   return function(z, x, y) {

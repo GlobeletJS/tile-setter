@@ -1,0 +1,39 @@
+{
+  "version": 8,
+  "name": "Water Wells",
+  "sources": {
+    "wells": {
+      "type": "vector",
+      "url": "mapbox://jhembd.4qt27dhz"
+    }
+  },
+  "glyphs": "https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key=mrAq6zQEFxOkanukNbGm",
+  "layers": [{
+    "id": "background",
+    "paint": {
+      "background-color": "hsl(47, 26%, 88%)"
+    },
+    "type": "background"
+  }, {
+    "id": "twdb-groundwater-v2",
+    "type": "circle",
+    "source": "wells",
+    "source-layer": "TWDB_Groundwater_v2",
+    "interactive": true,
+    "paint": {
+      "circle-radius": 2.5,
+      "circle-color": "#0022EE"
+    }
+  }, {
+    "id": "highlighted-well",
+    "tilekiln-group": "highlight",
+    "type": "circle",
+    "source": "wells",
+    "source-layer": "TWDB_Groundwater_v2",
+    "filter": ["==", "title", "5858901"],
+    "paint": {
+      "circle-radius": 5.0,
+      "circle-color": "#FF0000"
+    }
+  }]
+}

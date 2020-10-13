@@ -38,9 +38,9 @@
   "dependencies": {
     "chunked-queue": "^0.1.2",
     "d3-tile": "github:GlobeletJS/d3-tile",
-    "tile-gl": "0.0.3",
+    "tile-gl": "0.0.4",
     "tile-mixer": "github:GlobeletJS/tile-mixer",
-    "tile-painter": "github:GlobeletJS/tile-painter#webgl",
+    "tile-painter": "file:../tile-painter",
     "tile-rack": "^1.0.1",
     "tile-stencil": "^0.2.4"
   }
