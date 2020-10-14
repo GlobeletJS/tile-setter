@@ -1,9 +1,12 @@
+import { initBoundsCheck } from "./bounds.js";
 import { initCache } from 'tile-rack';
 import * as d3 from 'd3-tile';
 import { getTileMetric } from "./metric.js";
 
 export function initSource({ source, tileFactory }) {
-  const { tileSize = 512, minzoom = 0, maxzoom = 30 } = source;
+  const { tileSize = 512, maxzoom = 30 } = source;
+  const outOfBounds = initBoundsCheck(source);
+
   const cache = initCache({ create: tileFactory, size: tileSize });
   var numTiles = 0;
 
@@ -25,20 +28,23 @@ export function initSource({ source, tileFactory }) {
     const stopCondition = ([z, x, y]) => metric({ z, x, y }) > 0.75;
 
     // Retrieve a tile box for every tile in the grid
+    var tilesDone = 0;
     const grid = tiles.map(([x, y, z]) => {
       let [xw, yw, zw] = d3.tileWrap([x, y, z]);
+
+      if (outOfBounds(zw, xw, yw)) {
+        tilesDone += 1; // Count it as complete
+        return;
+      }
+
       let box = cache.retrieve([zw, xw, yw], stopCondition);
       if (!box) return;
-      // Add tile indices to returned box
+
+      tilesDone += (box.sw / tileSize) ** 2;
       return Object.assign(box, { x, y, z });
     });
 
-    // Find the fraction of tiles that are fully loaded
-    grid.loaded = grid.reduce((frac, box) => {
-      if (!box) return frac;
-      return frac + (box.sw / tileSize) ** 2;
-    }, 0) / grid.length;
-
+    grid.loaded = tilesDone / grid.length;
     grid.scale = tiles.scale;
     grid.translate = tiles.translate.slice();
 

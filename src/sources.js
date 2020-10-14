@@ -15,7 +15,7 @@ export function initSources(style, context) {
     let loader = (source.type === "raster")
       ? initRasterLoader(source)
       : initVectorLoader(key, source);
-    let tileFactory = buildFactory({ source, loader, reporter });
+    let tileFactory = buildFactory({ loader, reporter });
     dict[key] = initSource({ source, tileFactory });
     return dict;
   }, {});
