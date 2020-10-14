@@ -8779,6 +8779,7 @@ function initCache({ create, size = 512 }) {
     sx, sy, sw, // Cropping parameters--which part of the tile to use
     condition   // Stopping criterion for recursion
   ) {
+    if (condition(zxy)) return;
 
     let tile = getOrCreateTile(zxy);
     if (!tile) return; // can't create tile for this zxy
@@ -8790,8 +8791,6 @@ function initCache({ create, size = 512 }) {
     let px = Math.floor(x / 2);
     let py = Math.floor(y / 2);
     let pzxy = [pz, px, py, ...zxy.slice(3)]; // Include extra coords, if any
-
-    if (condition(pzxy)) return;
 
     // Compute cropping parameters for the parent
     let psx = sx / 2 + (x / 2 - px) * size;
@@ -8917,9 +8916,9 @@ function tileWrap([x, y, z]) {
 function getTileMetric(layout, tileset, padding = 0.595) {
   const zoom = tileset[0][2];
   const nTiles = 2 ** zoom;
-  const mapResolution = (zoom == 0) // Don't discard the world tile
-    ? Math.min(layout.tileSize() / tileset.scale, 1)
-    : layout.tileSize() / tileset.scale;
+  const scaleFac = layout.tileSize() / tileset.scale;
+  const mapResolution = 
+    Math.min(Math.max(1.0 / Math.sqrt(2), scaleFac), Math.sqrt(2));
 
   function wrap(x, xmax) {
     while (x < 0) x += xmax;

@@ -19,8 +19,6 @@ export function main() {
 }
 
 function setup(api) {
-  console.log("tileMap initialized. Setting up");
-
   const viewport = api.getViewport(window.devicePixelRatio);
   const canvas = api.gl.canvas;
 
@@ -49,9 +47,14 @@ function setup(api) {
     let resized = yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
     api.setTransform(transform);
     const percent = api.draw(pixRatio) * 100;
-    loadStatus.innerHTML = (percent < 100)
+    let statusReport = (percent < 100)
       ? "Loading: " + percent.toFixed(0) + "%"
       : "Complete! " + percent.toFixed(0) + "%";
+
+    let zm = Math.log2(transform.k) - 9;
+    statusReport += "<br>Zoom = " + zm.toFixed(2);
+
+    loadStatus.innerHTML = statusReport;
 
     requestAnimationFrame(animate);
   }

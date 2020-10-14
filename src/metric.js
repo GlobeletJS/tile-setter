@@ -1,9 +1,9 @@
 export function getTileMetric(layout, tileset, padding = 0.595) {
   const zoom = tileset[0][2];
   const nTiles = 2 ** zoom;
-  const mapResolution = (zoom == 0) // Don't discard the world tile
-    ? Math.min(layout.tileSize() / tileset.scale, 1)
-    : layout.tileSize() / tileset.scale;
+  const scaleFac = layout.tileSize() / tileset.scale;
+  const mapResolution = 
+    Math.min(Math.max(1.0 / Math.sqrt(2), scaleFac), Math.sqrt(2));
 
   function wrap(x, xmax) {
     while (x < 0) x += xmax;

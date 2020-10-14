@@ -41,7 +41,7 @@
     "tile-gl": "0.0.4",
     "tile-mixer": "github:GlobeletJS/tile-mixer",
     "tile-painter": "file:../tile-painter",
-    "tile-rack": "^1.0.1",
+    "tile-rack": "^1.0.2",
     "tile-stencil": "^0.2.4"
   }
 }
