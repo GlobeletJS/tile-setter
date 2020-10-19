@@ -19,8 +19,7 @@
       "data": "./us-states.geojson",
       "minzoom" :0,
       "maxzoom" :14,
-      "tileSize": 512,
-      "vector_layers": [{ "id":"states", "minzoom":0, "maxzoom": 14 }]
+      "tileSize": 512
     }
   },
   "glyphs": "https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key=mrAq6zQEFxOkanukNbGm",

@@ -8569,17 +8569,15 @@ function geojsonvtToJSON(value) {
 
   const geometry = value.geometry;
 
-  const types = ['Unknown', 'Point', 'Linestring', 'Polygon'];
+  const types = ['Unknown', 'Point', 'LineString', 'Polygon'];
 
   // TODO: What if geometry.length < 1?
   const type = (geometry.length === 1)
     ? types[value.type]
     : 'Multi' + types[value.type];
 
-  const coordinates = 
-    (geometry.length != 1) ? [geometry]
-    : (type === 'MultiPoint') ? geometry[0]
-    : geometry;
+  const coordinates =
+    (type == "MultiPolygon") ? [geometry]                                                                                                                                       : (type === 'Point'|| type === 'LineString') ? geometry[0]                                                                                                                  : geometry;
 
   return {
     geometry: { type, coordinates },

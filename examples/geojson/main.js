@@ -12,7 +12,7 @@ export function main() {
     gl,
     center: [-73.885, 40.745],
     zoom: 9,
-    style: "klokantech-basic-style-geojson.json",
+    style: "klokantech-basic-style-geojson-sampler.json",
   }).promise.then(setup)
     .catch(console.log);
 }
