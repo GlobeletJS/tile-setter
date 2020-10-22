@@ -10,8 +10,8 @@ export function main() {
 
   tileMap.init({
     gl,
-    center: [-73.885, 40.745],
-    zoom: 9,
+    center: [0, 30],
+    zoom: 2,
     style: "klokantech-basic-style-geojson-sampler.json",
   }).promise.then(setup)
     .catch(console.log);
