@@ -3,7 +3,7 @@ import { initCache } from 'tile-rack';
 import * as d3 from 'd3-tile';
 import { getTileMetric } from "./metric.js";
 
-export function initSource({ source, tileFactory }) {
+export function initSource({ key, source, tileFactory }) {
   const { tileSize = 512, maxzoom = 30 } = source;
   const outOfBounds = initBoundsCheck(source);
 
@@ -51,5 +51,5 @@ export function initSource({ source, tileFactory }) {
     return grid;
   }
 
-  return { getTiles, numTiles: () => numTiles };
+  return { key, getTiles, numTiles: () => numTiles };
 }

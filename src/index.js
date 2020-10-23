@@ -35,14 +35,11 @@ function setup(styleDoc, params, api) {
     const transform = api.getTransform();
     const viewport = api.getViewport(pixRatio);
 
-    const tilesets = sources.getTilesets(viewport, transform, pixRatio);
-    const tilesetVals = Object.values(tilesets);
-    const loadStatus = tilesetVals.map(t => t.loaded)
-      .reduce((s, l) => s + l) / tilesetVals.length;
+    const loadStatus = sources.loadTilesets(viewport, transform, pixRatio);
 
     // Zoom for styling is always based on tilesize 512px (2^9) in CSS pixels
     const zoom = Math.max(0, Math.log2(transform.k) - 9);
-    render(tilesets, zoom, pixRatio);
+    render(sources.tilesets, zoom, pixRatio);
 
     return loadStatus;
   };

@@ -5,50 +5,45 @@ import { initTileMixer } from 'tile-mixer';
 import { initSource } from "./source.js";
 
 export function initSources(style, context) {
-  const { glyphs, sources, layers } = style;
+  const { glyphs, sources: sourceDescriptions, layers } = style;
 
+  const reporter = document.createElement("div");
   const queue = chunkedQueue.init();
   const workerMonitors = [];
-  const reporter = document.createElement("div");
+  const tilesets = {};
 
-  const getters = Object.entries(sources).reduce((dict, [key, source]) => {
+  const sources = Object.entries(sourceDescriptions).map(([key, source]) => {
     let loader = (source.type === "raster")
       ? initRasterLoader(source)
       : initVectorLoader(key, source);
     let tileFactory = buildFactory({ loader, reporter });
-    dict[key] = initSource({ source, tileFactory });
-    return dict;
-  }, {});
+    return initSource({ key, source, tileFactory });
+  });
 
   function initVectorLoader(key, source) {
-    let subset = layers.filter(
-      l => l.source === key && l.type !== "fill-extrusion"
-    );
-
     let loader = initTileMixer({
-      context,
+      context, queue, glyphs, source,
       threads: (source.type === "geojson") ? 1 : 2,
-      glyphs,
-      source,
-      layers: subset,
-      queue,
+      layers: layers.filter(l => l.source === key),
     });
 
     workerMonitors.push(loader.workerTasks);
     return loader;
   }
 
-  function getTilesets(viewport, transform, pixRatio = 1) {
-    const tilesets = Object.entries(getters).reduce((dict, [key, getter]) => {
-      dict[key] = getter.getTiles(viewport, transform, pixRatio);
-      return dict;
-    }, {});
+  function loadTilesets(viewport, transform, pixRatio = 1) {
+    sources.forEach(s => {
+      tilesets[s.key] = s.getTiles(viewport, transform, pixRatio);
+    });
     queue.sortTasks();
-    return tilesets;
+    const loadStatus = Object.values(tilesets).map(t => t.loaded)
+      .reduce((s, l) => s + l) / sources.length;
+    return loadStatus;
   }
 
   return {
-    getTilesets,
+    tilesets,
+    loadTilesets,
     workerTasks: () => workerMonitors.reduce((s, mon) => s + mon(), 0),
     queuedTasks: () => taskQueue.countTasks(),
     reporter,
