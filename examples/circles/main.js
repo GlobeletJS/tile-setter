@@ -39,7 +39,13 @@ function setup(api) {
     .call(zoomer)
     .call(zoomer.transform, transform);
 
+  var mouse = [];
+  d3.select(canvas).on("mousemove", (event) => {
+    mouse = d3.pointer(event);
+  });
+
   const loadStatus = document.getElementById("loadStatus");
+  const infoBox = document.getElementById("info");
 
   requestAnimationFrame(animate);
   function animate(time) {
@@ -51,10 +57,11 @@ function setup(api) {
       ? "Loading: " + percent.toFixed(0) + "%"
       : "Complete! " + percent.toFixed(0) + "%";
 
-    let zm = Math.log2(transform.k) - 9;
-    statusReport += "<br>Zoom = " + zm.toFixed(2);
-
+    statusReport += "<br>Mouse: " + mouse.map(x => x.toFixed(2)).join(", ");
     loadStatus.innerHTML = statusReport;
+
+    let feature = api.select("twdb-groundwater-v2", api.localToGlobal(mouse), 3);
+    infoBox.innerHTML = "<pre>" + JSON.stringify(feature, null, 2) + "</pre>";
 
     requestAnimationFrame(animate);
   }

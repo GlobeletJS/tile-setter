@@ -41,7 +41,7 @@ export function initSource({ key, source, tileFactory }) {
       if (!box) return;
 
       tilesDone += (box.sw / tileSize) ** 2;
-      return Object.assign(box, { x, y, z });
+      return Object.assign(box, { x: xw, y: yw, z: zw });
     });
 
     grid.loaded = tilesDone / grid.length;

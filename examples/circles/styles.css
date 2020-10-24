@@ -7,10 +7,22 @@ body {
   font-family: "Noto Sans";
   font-size: 14px;
 }
-#main {
-  width: 100%;
+.container {
+  display: flex;
   height: 100vh;
+}
+#main {
+  flex-grow: 1;
+  height: 100%;
   position: relative;
+}
+#info {
+  width: 600px;
+  height: 100%;
+  position: relative;
+}
+pre {
+  white-space: pre-wrap;
 }
 #mapCanvas {
   width: 100%;

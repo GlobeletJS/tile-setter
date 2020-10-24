@@ -19,6 +19,8 @@ export function initCoords({ size, center, zoom, clampY = true }) {
     getTransform: () => Object.assign({}, transform),
     getCamPos: () => camPos.slice(),
     getScale: () => scale.slice(),
+
+    localToGlobal,
   };
 
   function getViewport(pixRatio = 1) {
@@ -76,5 +78,13 @@ export function initCoords({ size, center, zoom, clampY = true }) {
     let y = (0.5 - yr) * k + size.height / 2;
 
     return setTransform({ k, x, y });
+  }
+
+  function localToGlobal([x, y]) {
+    // Convert local map pixels to global XY
+    let { x: tx, y: ty, k } = transform;
+    // tx, ty is the shift of the map center (in pixels) 
+    //   relative to the viewport origin (top left corner)
+    return [(x - tx) / k + 0.5, (y - ty) / k + 0.5];
   }
 }

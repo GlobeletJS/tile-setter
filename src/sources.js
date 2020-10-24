@@ -11,6 +11,7 @@ export function initSources(style, context) {
   const queue = chunkedQueue.init();
   const workerMonitors = [];
   const tilesets = {};
+  const layerSources = layers.reduce((d, l) => (d[l.id] = l.source, d), {});
 
   const sources = Object.entries(sourceDescriptions).map(([key, source]) => {
     let loader = (source.type === "raster")
@@ -43,6 +44,7 @@ export function initSources(style, context) {
 
   return {
     tilesets,
+    getLayerTiles: (layer) => tilesets[layerSources[layer]],
     loadTilesets,
     workerTasks: () => workerMonitors.reduce((s, mon) => s + mon(), 0),
     queuedTasks: () => taskQueue.countTasks(),
