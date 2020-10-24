@@ -42,9 +42,9 @@ export function initSource({ key, source, tileFactory }) {
 
       tilesDone += (box.sw / tileSize) ** 2;
       return Object.assign(box, { x: xw, y: yw, z: zw });
-    });
+    }).filter(t => t !== undefined);
 
-    grid.loaded = tilesDone / grid.length;
+    grid.loaded = tilesDone / tiles.length;
     grid.scale = tiles.scale;
     grid.translate = tiles.translate.slice();
 

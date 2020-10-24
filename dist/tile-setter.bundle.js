@@ -8960,9 +8960,9 @@ function initSource({ key, source, tileFactory }) {
 
       tilesDone += (box.sw / tileSize) ** 2;
       return Object.assign(box, { x: xw, y: yw, z: zw });
-    });
+    }).filter(t => t !== undefined);
 
-    grid.loaded = tilesDone / grid.length;
+    grid.loaded = tilesDone / tiles.length;
     grid.scale = tiles.scale;
     grid.translate = tiles.translate.slice();
 
@@ -10450,41 +10450,38 @@ function inBBox(pt, bbox) {
 var booleanPointInPolygon = unwrapExports(booleanPointInPolygon_1);
 
 function initSelector(sources) {
-  const tileSize = 512; // TODO: don't assum this
+  const tileSize = 512; // TODO: don't assume this
 
   return function(layer, xy, dxy = 5) {
-    const tileset = sources.getLayerTiles(layer)
-      .filter(t => t !== undefined);
+    const tileset = sources.getLayerTiles(layer);
     if (!tileset || !tileset.length) return;
 
     // Input is global XY, in the range [0, 1] X [0, 1]. Compute tile indices
     const nTiles = 2 ** tileset[0].z;
-    const sxy = xy.map(c => c * nTiles);
-    const [ix, iy] = sxy.map(Math.floor);
+    const txy = xy.map(c => c * nTiles);
+    const [ix, iy] = txy.map(Math.floor);
 
+    // Find the tile, and get the layer features
     const tileBox = tileset.find(({ x, y }) => x == ix && y == iy);
     if (!tileBox) return;
-
-    const dataLayer = tileBox.tile.data.layers[layer];
-    if (!dataLayer) {
-      console.log("selector: missing layer " + layer);
-      console.log("Available layers: " + Object.keys(tileBox.tile.data.layers));
-      return;
-    }
     const { features, extent = tileSize } = tileBox.tile.data.layers[layer];
     if (!features || !features.length) return;
 
-    // Find the feature under the requested xy
+    // Convert xy to tile coordinates
     const scale = extent * tileBox.sw / tileSize; // TODO: reference sw to 1?
-    const txy = sxy.map(c => (c - Math.floor(c)) * scale);
+    const tileXY = txy.map(c => (c - Math.floor(c)) * scale);
+    tileXY[0] += tileBox.sx;
+    tileXY[1] += tileBox.sy;
 
+    // Find the nearest feature
     const { distance, feature } = features.reduce((nearest, feature) => {
-      let distance = measureDistance(txy, feature.geometry);
+      let distance = measureDistance(tileXY, feature.geometry);
       if (distance < nearest.distance) nearest = { distance, feature };
       return nearest;
     }, { distance: Infinity });
 
-    const threshold = dxy * scale / tileSize;
+    // Threshold distance should be in units of screen pixels
+    const threshold = dxy * scale / tileset.scale;
     if (distance <= threshold) return feature;
   };
 }
