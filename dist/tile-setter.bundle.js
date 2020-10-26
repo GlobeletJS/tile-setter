@@ -8959,7 +8959,7 @@ function initSource({ key, source, tileFactory }) {
       if (!box) return;
 
       tilesDone += (box.sw / tileSize) ** 2;
-      return Object.assign(box, { x: xw, y: yw, z: zw });
+      return Object.assign(box, { x, y, z });
     }).filter(t => t !== undefined);
 
     grid.loaded = tilesDone / tiles.length;
@@ -10464,7 +10464,9 @@ function initSelector(sources) {
     // Find the tile, and get the layer features
     const tileBox = tileset.find(({ x, y }) => x == ix && y == iy);
     if (!tileBox) return;
-    const { features, extent = tileSize } = tileBox.tile.data.layers[layer];
+    const dataLayer = tileBox.tile.data.layers[layer];
+    if (!dataLayer) return;
+    const { features, extent = tileSize } = dataLayer;
     if (!features || !features.length) return;
 
     // Convert xy to tile coordinates

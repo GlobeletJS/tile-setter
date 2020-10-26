@@ -23,6 +23,7 @@ body {
 }
 pre {
   white-space: pre-wrap;
+  word-wrap: break-word;
 }
 #mapCanvas {
   width: 100%;

@@ -12,7 +12,7 @@ export function main() {
     gl,
     center: [-100, 31],
     zoom: 7,
-    style: "./wells_style.json",
+    style: "./light-wells.json",
     mapboxToken: "pk.eyJ1IjoiamhlbWJkIiwiYSI6ImNqcHpueHpyZjBlMjAzeG9kNG9oNzI2NTYifQ.K7fqhk2Z2YZ8NIV94M-5nA",
   }).promise.then(setup)
     .catch(console.log);
@@ -53,12 +53,9 @@ function setup(api) {
     let resized = yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
     api.setTransform(transform);
     const percent = api.draw(pixRatio) * 100;
-    let statusReport = (percent < 100)
+    loadStatus.innerHTML = (percent < 100)
       ? "Loading: " + percent.toFixed(0) + "%"
       : "Complete! " + percent.toFixed(0) + "%";
-
-    statusReport += "<br>Mouse: " + mouse.map(x => x.toFixed(2)).join(", ");
-    loadStatus.innerHTML = statusReport;
 
     let feature = api.select("twdb-groundwater-v2", api.localToGlobal(mouse), 3);
     infoBox.innerHTML = "<pre>" + JSON.stringify(feature, null, 2) + "</pre>";

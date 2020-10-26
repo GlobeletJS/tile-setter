@@ -15,7 +15,9 @@ export function initSelector(sources) {
     // Find the tile, and get the layer features
     const tileBox = tileset.find(({ x, y }) => x == ix && y == iy);
     if (!tileBox) return;
-    const { features, extent = tileSize } = tileBox.tile.data.layers[layer];
+    const dataLayer = tileBox.tile.data.layers[layer];
+    if (!dataLayer) return;
+    const { features, extent = tileSize } = dataLayer;
     if (!features || !features.length) return;
 
     // Convert xy to tile coordinates
