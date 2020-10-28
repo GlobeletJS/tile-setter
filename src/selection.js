@@ -1,3 +1,4 @@
+import { getTileTransform, transformGeometry } from "./tile-coords.js";
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 
 export function initSelector(sources) {
@@ -9,8 +10,7 @@ export function initSelector(sources) {
 
     // Input is global XY, in the range [0, 1] X [0, 1]. Compute tile indices
     const nTiles = 2 ** tileset[0].z;
-    const txy = xy.map(c => c * nTiles);
-    const [ix, iy] = txy.map(Math.floor);
+    const [ix, iy] = xy.map(c => Math.floor(c * nTiles));
 
     // Find the tile, and get the layer features
     const tileBox = tileset.find(({ x, y }) => x == ix && y == iy);
@@ -21,10 +21,8 @@ export function initSelector(sources) {
     if (!features || !features.length) return;
 
     // Convert xy to tile coordinates
-    const scale = extent * tileBox.sw / tileSize; // TODO: reference sw to 1?
-    const tileXY = txy.map(c => (c - Math.floor(c)) * scale);
-    tileXY[0] += tileBox.sx;
-    tileXY[1] += tileBox.sy;
+    const transform = getTileTransform(tileBox.tile, extent);
+    const tileXY = transform.forward(xy);
 
     // Find the nearest feature
     const { distance, feature } = features.reduce((nearest, feature) => {
@@ -34,12 +32,18 @@ export function initSelector(sources) {
     }, { distance: Infinity });
 
     // Threshold distance should be in units of screen pixels
-    const threshold = dxy * scale / tileset.scale;
-    if (distance <= threshold) return feature;
+    // TODO: reference sw to 1?
+    const threshold = dxy * (extent / tileset.scale) * (tileBox.sw / tileSize);
+    if (distance > threshold) return;
+
+    // Convert feature coordinates from tile XY to global XY
+    const { type, properties, geometry } = feature;
+    const globalGeometry = transformGeometry(geometry, transform.inverse);
+    return { type, properties, geometry: globalGeometry };
   };
 }
 
-function measureDistance(pt, geometry) {
+export function measureDistance(pt, geometry) {
   const { type, coordinates } = geometry;
 
   switch (type) {

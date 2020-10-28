@@ -9322,6 +9322,52 @@ function initRenderer$1(context, style) {
   return drawLayers;
 }
 
+function getTileTransform(tile, extent) {
+  const { z, x, y } = tile;
+  const nTiles = 2 ** z;
+  const translate = [x, y];
+
+  return {
+    // Global XY to local tile XY
+    forward: (pt) => pt.map((g, i) => (g * nTiles - translate[i]) * extent),
+
+    // Local tile XY to global XY
+    inverse: (pt) => pt.map((l, i) => (l / extent + translate[i]) / nTiles),
+  };
+}
+
+function transformGeometry(geometry, transform) {
+  const { type, coordinates } = geometry;
+
+  return {
+    type,
+    coordinates: transformCoords(type, coordinates, transform),
+  };
+}
+
+function transformCoords(type, coordinates, transform) {
+  switch (type) {
+    case "Point":
+      return transform(coordinates);
+
+    case "MultiPoint":
+    case "LineString":
+      return coordinates.map(transform);
+
+    case "MultiLineString":
+    case "Polygon":
+      return coordinates.map(ring => ring.map(transform));
+
+    case "MultiPolygon":
+      return coordinates.map(polygon => {
+        return polygon.map(ring => ring.map(transform));
+      });
+
+    default:
+      throw Error("transformCoords: unknown geometry type!");
+  }
+}
+
 function unwrapExports (x) {
 	return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, 'default') ? x['default'] : x;
 }
@@ -10458,8 +10504,7 @@ function initSelector(sources) {
 
     // Input is global XY, in the range [0, 1] X [0, 1]. Compute tile indices
     const nTiles = 2 ** tileset[0].z;
-    const txy = xy.map(c => c * nTiles);
-    const [ix, iy] = txy.map(Math.floor);
+    const [ix, iy] = xy.map(c => Math.floor(c * nTiles));
 
     // Find the tile, and get the layer features
     const tileBox = tileset.find(({ x, y }) => x == ix && y == iy);
@@ -10470,10 +10515,8 @@ function initSelector(sources) {
     if (!features || !features.length) return;
 
     // Convert xy to tile coordinates
-    const scale = extent * tileBox.sw / tileSize; // TODO: reference sw to 1?
-    const tileXY = txy.map(c => (c - Math.floor(c)) * scale);
-    tileXY[0] += tileBox.sx;
-    tileXY[1] += tileBox.sy;
+    const transform = getTileTransform(tileBox.tile, extent);
+    const tileXY = transform.forward(xy);
 
     // Find the nearest feature
     const { distance, feature } = features.reduce((nearest, feature) => {
@@ -10483,8 +10526,14 @@ function initSelector(sources) {
     }, { distance: Infinity });
 
     // Threshold distance should be in units of screen pixels
-    const threshold = dxy * scale / tileset.scale;
-    if (distance <= threshold) return feature;
+    // TODO: reference sw to 1?
+    const threshold = dxy * (extent / tileset.scale) * (tileBox.sw / tileSize);
+    if (distance > threshold) return;
+
+    // Convert feature coordinates from tile XY to global XY
+    const { type, properties, geometry } = feature;
+    const globalGeometry = transformGeometry(geometry, transform.inverse);
+    return { type, properties, geometry: globalGeometry };
   };
 }
 
