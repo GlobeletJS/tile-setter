@@ -57,7 +57,11 @@ function setup(api) {
       ? "Loading: " + percent.toFixed(0) + "%"
       : "Complete! " + percent.toFixed(0) + "%";
 
-    let feature = api.select("twdb-groundwater-v2", api.localToGlobal(mouse), 3);
+    let feature = api.select({
+      layer: "twdb-groundwater-v2",
+      point: api.localToGlobal(mouse),
+      radius: 3,
+    });
     infoBox.innerHTML = "<pre>" + JSON.stringify(feature, null, 2) + "</pre>";
 
     requestAnimationFrame(animate);

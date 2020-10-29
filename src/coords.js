@@ -1,4 +1,4 @@
-import * as projection from "./proj-mercator.js";
+import * as mercator from "./proj-mercator.js";
 
 export function initCoords({ size, center, zoom, clampY = true }) {
   const degrees = 180 / Math.PI;
@@ -72,7 +72,7 @@ export function initCoords({ size, center, zoom, clampY = true }) {
     let lonLat = (units === 'degrees')
       ? c.map(x => x / degrees)
       : c;
-    let [xr, yr] = projection.lonLatToXY([], lonLat);
+    let [xr, yr] = mercator.forward(lonLat);
     
     let x = (0.5 - xr) * k + size.width / 2;
     let y = (0.5 - yr) * k + size.height / 2;

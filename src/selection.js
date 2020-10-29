@@ -1,18 +1,16 @@
-import { getTileTransform, transformGeometry } from "./tile-coords.js";
+import { getTileIndices, getTileTransform } from "./tile-coords.js";
+import { transformFeatureCoords } from "./feature-coords.js";
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 
 export function initSelector(sources) {
   const tileSize = 512; // TODO: don't assume this
 
-  return function(layer, xy, dxy = 5) {
+  return function({ layer, point, radius = 5, units = "xy" }) {
     const tileset = sources.getLayerTiles(layer);
     if (!tileset || !tileset.length) return;
 
-    // Input is global XY, in the range [0, 1] X [0, 1]. Compute tile indices
-    const nTiles = 2 ** tileset[0].z;
-    const [ix, iy] = xy.map(c => Math.floor(c * nTiles));
-
     // Find the tile, and get the layer features
+    const [ix, iy] = getTileIndices(point, tileset[0].z, units);
     const tileBox = tileset.find(({ x, y }) => x == ix && y == iy);
     if (!tileBox) return;
     const dataLayer = tileBox.tile.data.layers[layer];
@@ -20,9 +18,9 @@ export function initSelector(sources) {
     const { features, extent = tileSize } = dataLayer;
     if (!features || !features.length) return;
 
-    // Convert xy to tile coordinates
-    const transform = getTileTransform(tileBox.tile, extent);
-    const tileXY = transform.forward(xy);
+    // Convert point to tile coordinates
+    const transform = getTileTransform(tileBox.tile, extent, units);
+    const tileXY = transform.forward(point);
 
     // Find the nearest feature
     const { distance, feature } = features.reduce((nearest, feature) => {
@@ -33,13 +31,11 @@ export function initSelector(sources) {
 
     // Threshold distance should be in units of screen pixels
     // TODO: reference sw to 1?
-    const threshold = dxy * (extent / tileset.scale) * (tileBox.sw / tileSize);
+    const threshold = radius * extent / tileset.scale * tileBox.sw / tileSize;
     if (distance > threshold) return;
 
-    // Convert feature coordinates from tile XY to global XY
-    const { type, properties, geometry } = feature;
-    const globalGeometry = transformGeometry(geometry, transform.inverse);
-    return { type, properties, geometry: globalGeometry };
+    // Convert feature coordinates from tile XY units back to input units
+    return transformFeatureCoords(feature, transform.inverse);
   };
 }
 

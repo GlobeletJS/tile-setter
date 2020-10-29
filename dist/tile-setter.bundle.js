@@ -1282,31 +1282,43 @@ function initEventHandler() {
 const maxMercLat = 2.0 * Math.atan( Math.exp(Math.PI) ) - Math.PI / 2.0;
 const clipLat = (lat) => Math.min(Math.max(-maxMercLat, lat), maxMercLat);
 
-function lonLatToXY(projected, geodetic) {
-  // Input geodetic is a pointer to a 2- (or 3?)-element array, containing
-  // longitude and latitude of a point on the ellipsoid surface
-  // Output projected is a pointer to a 2-element array containing
-  // the projected X/Y coordinates
-
-  projected[0] = lonToX( geodetic[0] );
-  projected[1] = latToY( geodetic[1] );
-  return projected;
-}
-
-function lonToX(lon) {
+function forward([lon, lat]) {
   // Convert input longitude in radians to a Web Mercator x-coordinate
   // where x = 0 at lon = -PI, x = 1 at lon = +PI
-  return 0.5 + 0.5 * lon / Math.PI;
-}
+  let x = 0.5 + 0.5 * lon / Math.PI;
 
-function latToY(lat) {
   // Convert input latitude in radians to a Web Mercator y-coordinate
   // where y = 0 at lat = maxMercLat, y = 1 at lat = -maxMercLat
-  var y = 0.5 - 0.5 / Math.PI *
+  let y = 0.5 - 0.5 / Math.PI *
     Math.log( Math.tan(Math.PI / 4.0 + clipLat(lat) / 2.0) );
 
-  return Math.min(Math.max(0.0, y), 1.0); // Y does not wrap around
+  // Clip y to the range [0, 1] (it does not wrap around)
+  y = Math.min(Math.max(0.0, y), 1.0);
+
+  return [x, y];
 }
+
+function inverse([x, y]) {
+  let lon = 2.0 * (x - 0.5) * Math.PI;
+  let lat = 2.0 * Math.atan(Math.exp(Math.PI * (1.0 - 2.0 * y))) - Math.PI / 2;
+
+  return [lon, lat];
+}
+
+function scale([lon, lat]) {
+  // Return value scales a (differential) distance along the plane tangent to
+  // the sphere at [lon, lat] to a distance in map coordinates.
+  // NOTE: ASSUMES a sphere of radius 1! Input distances should be
+  //  pre-normalized by the appropriate radius
+  return 1 / (2 * Math.PI * Math.cos( clipLat(lat) ));
+}
+
+var projection = /*#__PURE__*/Object.freeze({
+  __proto__: null,
+  forward: forward,
+  inverse: inverse,
+  scale: scale
+});
 
 function initCoords({ size, center, zoom, clampY = true }) {
   const degrees = 180 / Math.PI;
@@ -1380,7 +1392,7 @@ function initCoords({ size, center, zoom, clampY = true }) {
     let lonLat = (units === 'degrees')
       ? c.map(x => x / degrees)
       : c;
-    let [xr, yr] = lonLatToXY([], lonLat);
+    let [xr, yr] = forward(lonLat);
     
     let x = (0.5 - xr) * k + size.width / 2;
     let y = (0.5 - yr) * k + size.height / 2;
@@ -8695,8 +8707,8 @@ function initBoundsCheck(source) {
 
   // Convert bounds to Web Mercator (the projection ASSUMED by tilejson-spec)
   const radianBounds = bounds.map(c => c * Math.PI / 180.0);
-  let [xmin, ymax] = lonLatToXY([], radianBounds.slice(0, 2));
-  let [xmax, ymin] = lonLatToXY([], radianBounds.slice(2, 4));
+  let [xmin, ymax] = forward(radianBounds.slice(0, 2));
+  let [xmax, ymin] = forward(radianBounds.slice(2, 4));
   if (scheme === "tms") [ymin, ymax] = [ymax, ymin];
 
   return function(z, x, y) {
@@ -9322,17 +9334,62 @@ function initRenderer$1(context, style) {
   return drawLayers;
 }
 
-function getTileTransform(tile, extent) {
+const degrees = 180.0 / Math.PI;
+
+function getTileIndices(point, zoom, units) {
+  // Convert point to global XY coordinates
+  const xy = getProjection(units).forward(point);
+
+  // Return the indices of the tile containing this XY
+  const nTiles = 2 ** zoom;
+  return xy.map(c => Math.floor(c * nTiles));
+}
+
+function getTileTransform(tile, extent, units) {
+  const projection = getProjection(units);
   const { z, x, y } = tile;
   const nTiles = 2 ** z;
   const translate = [x, y];
 
-  return {
+  const transform = {
     // Global XY to local tile XY
     forward: (pt) => pt.map((g, i) => (g * nTiles - translate[i]) * extent),
 
     // Local tile XY to global XY
     inverse: (pt) => pt.map((l, i) => (l / extent + translate[i]) / nTiles),
+  };
+
+  return {
+    forward: (pt) => transform.forward(projection.forward(pt)),
+    inverse: (pt) => projection.inverse(transform.inverse(pt)),
+  };
+}
+
+function getProjection(units) {
+  switch (units) {
+    case "xy":
+      return { // Input coordinates already projected to XY
+        forward: p => p,
+        inverse: p => p,
+      };
+    case "radians":
+      return projection;
+    case "degrees":
+      return {
+        forward: (pt) => forward(pt.map(c => c / degrees)),
+        inverse: (pt) => inverse(pt).map(c => c * degrees),
+      };
+    default:
+      throw Error("getProjection: unknown units = " + units);
+  }
+}
+
+function transformFeatureCoords(feature, transform) {
+  const { type, properties, geometry } = feature;
+
+  return {
+    type, properties,
+    geometry: transformGeometry(geometry, transform),
   };
 }
 
@@ -10498,15 +10555,12 @@ var booleanPointInPolygon = unwrapExports(booleanPointInPolygon_1);
 function initSelector(sources) {
   const tileSize = 512; // TODO: don't assume this
 
-  return function(layer, xy, dxy = 5) {
+  return function({ layer, point, radius = 5, units = "xy" }) {
     const tileset = sources.getLayerTiles(layer);
     if (!tileset || !tileset.length) return;
 
-    // Input is global XY, in the range [0, 1] X [0, 1]. Compute tile indices
-    const nTiles = 2 ** tileset[0].z;
-    const [ix, iy] = xy.map(c => Math.floor(c * nTiles));
-
     // Find the tile, and get the layer features
+    const [ix, iy] = getTileIndices(point, tileset[0].z, units);
     const tileBox = tileset.find(({ x, y }) => x == ix && y == iy);
     if (!tileBox) return;
     const dataLayer = tileBox.tile.data.layers[layer];
@@ -10514,9 +10568,9 @@ function initSelector(sources) {
     const { features, extent = tileSize } = dataLayer;
     if (!features || !features.length) return;
 
-    // Convert xy to tile coordinates
-    const transform = getTileTransform(tileBox.tile, extent);
-    const tileXY = transform.forward(xy);
+    // Convert point to tile coordinates
+    const transform = getTileTransform(tileBox.tile, extent, units);
+    const tileXY = transform.forward(point);
 
     // Find the nearest feature
     const { distance, feature } = features.reduce((nearest, feature) => {
@@ -10527,13 +10581,11 @@ function initSelector(sources) {
 
     // Threshold distance should be in units of screen pixels
     // TODO: reference sw to 1?
-    const threshold = dxy * (extent / tileset.scale) * (tileBox.sw / tileSize);
+    const threshold = radius * extent / tileset.scale * tileBox.sw / tileSize;
     if (distance > threshold) return;
 
-    // Convert feature coordinates from tile XY to global XY
-    const { type, properties, geometry } = feature;
-    const globalGeometry = transformGeometry(geometry, transform.inverse);
-    return { type, properties, geometry: globalGeometry };
+    // Convert feature coordinates from tile XY units back to input units
+    return transformFeatureCoords(feature, transform.inverse);
   };
 }
 
@@ -10558,6 +10610,7 @@ function init$2(userParams) {
   // Set up dummy API
   const api = {
     gl: params.gl,
+    projection,
     draw: () => null,
     select: () => null,
     when: params.eventHandler.addListener,

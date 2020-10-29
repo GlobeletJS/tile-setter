@@ -3,6 +3,7 @@ import { loadStyle } from 'tile-stencil';
 import { initSources } from "./sources.js";
 import { initRenderer } from "./renderer.js";
 import { initSelector } from "./selection.js";
+import * as projection from "./proj-mercator.js";
 
 export function init(userParams) {
   const params = setParams(userParams);
@@ -10,6 +11,7 @@ export function init(userParams) {
   // Set up dummy API
   const api = {
     gl: params.gl,
+    projection,
     draw: () => null,
     select: () => null,
     when: params.eventHandler.addListener,
