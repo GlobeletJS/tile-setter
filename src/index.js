@@ -28,23 +28,30 @@ export function init(userParams) {
 }
 
 function setup(styleDoc, params, api) {
-  const sources = initSources(styleDoc, params.context);
+  const sources = initSources(styleDoc, params.context, api);
   sources.reporter.addEventListener("tileLoaded", 
     () => params.eventHandler.emitEvent("tileLoaded"),
     false);
 
+  // Set up interactive toggling of layer visibility
+  styleDoc.layers.forEach(l => {
+    // TODO: use functionalized visibility from tile-stencil?
+    let visibility = l.layout ? l.layout.visibility : false;
+    l.visible = (!visibility || visibility === "visible");
+  });
+
+  function setLayerVisibility(id, visibility) {
+    const layer = styleDoc.layers.find(l => l.id === id);
+    if (layer) layer.visible = visibility;
+  }
+  api.hideLayer = (id) => setLayerVisibility(id, false);
+  api.showLayer = (id) => setLayerVisibility(id, true);
+
   const render = initRenderer(params.context, styleDoc);
 
   api.draw = function(pixRatio = 1) {
-    const transform = api.getTransform();
-    const viewport = api.getViewport(pixRatio);
-
-    const loadStatus = sources.loadTilesets(viewport, transform, pixRatio);
-
-    // Zoom for styling is always based on tilesize 512px (2^9) in CSS pixels
-    const zoom = Math.max(0, Math.log2(transform.k) - 9);
-    render(sources.tilesets, zoom, pixRatio);
-
+    const loadStatus = sources.loadTilesets(pixRatio);
+    render(sources.tilesets, api.getZoom(), pixRatio);
     return loadStatus;
   };
 

@@ -17,6 +17,7 @@ export function initCoords({ size, center, zoom, clampY = true }) {
 
     getViewport,
     getTransform: () => Object.assign({}, transform),
+    getZoom: () => Math.max(0, Math.log2(transform.k) - 9),
     getCamPos: () => camPos.slice(),
     getScale: () => scale.slice(),
 

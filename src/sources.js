@@ -1,50 +1,36 @@
-import * as chunkedQueue from 'chunked-queue';
-import { initRasterLoader } from "./raster.js";
-import { buildFactory } from "./factory.js";
-import { initTileMixer } from 'tile-mixer';
-import { initSource } from "./source.js";
+import { initCaches } from "./caches.js";
+import { initTileGrid } from "./grid.js";
 
-export function initSources(style, context) {
+export function initSources(style, context, coords) {
   const { glyphs, sources: sourceDescriptions, layers } = style;
 
-  const reporter = document.createElement("div");
-  const queue = chunkedQueue.init();
-  const workerMonitors = [];
+  const caches = initCaches({ context, glyphs });
   const tilesets = {};
   const layerSources = layers.reduce((d, l) => (d[l.id] = l.source, d), {});
 
-  const sources = Object.entries(sourceDescriptions).map(([key, source]) => {
-    let loader = 
-      (source.type === "raster") ? initRasterLoader(source)
-      : (source.type === "vector") ? initVectorLoader(key, source)
-      : undefined;
-    if (!loader) return;
-
-    let tileFactory = buildFactory({ loader, reporter });
-    return initSource({ key, source, tileFactory });
-  }).filter(s => s !== undefined);
-
-  function initVectorLoader(key, source) {
+  const grids = Object.entries(sourceDescriptions).map(([key, source]) => {
     let subset = layers.filter(l => l.source === key);
     if (!subset.length) return;
 
-    let loader = initTileMixer({
-      context, queue, glyphs, source,
-      threads: (source.type === "geojson") ? 1 : 2,
-      layers: layers.filter(l => l.source === key),
-    });
+    let tileCache = caches.addSource({ source, layers: subset });
+    if (!tileCache) return;
+    let grid = initTileGrid({ key, source, tileCache });
 
-    workerMonitors.push(loader.workerTasks);
-    return loader;
-  }
+    grid.layers = subset;
+    return grid;
+  }).filter(s => s !== undefined);
 
-  function loadTilesets(viewport, transform, pixRatio = 1) {
-    sources.forEach(s => {
-      tilesets[s.key] = s.getTiles(viewport, transform, pixRatio);
+  function loadTilesets(pixRatio = 1) {
+    const transform = coords.getTransform();
+    const viewport = coords.getViewport(pixRatio);
+    grids.forEach(grid => {
+      // Make sure data from this source is still being displayed
+      if (!grid.layers.some(l => l.visible)) return;
+      tilesets[grid.key] = grid.getTiles(viewport, transform, pixRatio);
     });
-    queue.sortTasks();
+    caches.sortTasks();
     const loadStatus = Object.values(tilesets).map(t => t.loaded)
-      .reduce((s, l) => s + l) / sources.length;
+      .reduce((s, l) => s + l) / grids.length;
     return loadStatus;
   }
 
@@ -52,8 +38,7 @@ export function initSources(style, context) {
     tilesets,
     getLayerTiles: (layer) => tilesets[layerSources[layer]],
     loadTilesets,
-    workerTasks: () => workerMonitors.reduce((s, mon) => s + mon(), 0),
-    queuedTasks: () => taskQueue.countTasks(),
-    reporter,
+    queuedTasks: caches.queuedTasks,
+    reporter: caches.reporter,
   };
 }

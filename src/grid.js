@@ -1,13 +1,11 @@
 import { initBoundsCheck } from "./bounds.js";
-import { initCache } from 'tile-rack';
 import * as d3 from 'd3-tile';
 import { getTileMetric } from "./metric.js";
 
-export function initSource({ key, source, tileFactory }) {
+export function initTileGrid({ key, source, tileCache }) {
   const { tileSize = 512, maxzoom = 30 } = source;
   const outOfBounds = initBoundsCheck(source);
 
-  const cache = initCache({ create: tileFactory, size: tileSize });
   var numTiles = 0;
 
   // Set up the tile layout
@@ -23,8 +21,8 @@ export function initSource({ key, source, tileFactory }) {
 
     // Update tile priorities based on the new grid
     const metric = getTileMetric(layout, tiles);
-    cache.process(tile => { tile.priority = metric(tile); });
-    numTiles = cache.drop(tile => metric(tile) > 0.75);
+    tileCache.process(tile => { tile.priority = metric(tile); });
+    numTiles = tileCache.drop(tile => metric(tile) > 0.75);
     const stopCondition = ([z, x, y]) => metric({ z, x, y }) > 0.75;
 
     // Retrieve a tile box for every tile in the grid
@@ -37,7 +35,7 @@ export function initSource({ key, source, tileFactory }) {
         return;
       }
 
-      let box = cache.retrieve([zw, xw, yw], stopCondition);
+      let box = tileCache.retrieve([zw, xw, yw], stopCondition);
       if (!box) return;
 
       tilesDone += (box.sw / tileSize) ** 2;

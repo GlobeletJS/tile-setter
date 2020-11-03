@@ -4,10 +4,17 @@ import { initMapPainter } from 'tile-painter';
 export function initRenderer(context, style) {
   const { sources, spriteData: spriteObject, layers } = style;
 
-  const painters = layers.map(getStyleFuncs).map(styleLayer => {
-    let source = sources[styleLayer.source];
+  const painters = layers.map(layer => {
+    let source = sources[layer.source];
     let tileSize = source ? source.tileSize : 512;
-    return initMapPainter({ context, styleLayer, spriteObject, tileSize });
+
+    let painter = initMapPainter({
+      context, spriteObject, tileSize,
+      styleLayer: getStyleFuncs(layer),
+    });
+
+    painter.visible = () => layer.visible;
+    return painter;
   });
 
   function drawLayers(tilesets, zoom, pixRatio = 1) {
@@ -15,6 +22,7 @@ export function initRenderer(context, style) {
     context.clear();
     painters.forEach(painter => {
       if (zoom < painter.minzoom || painter.maxzoom < zoom) return;
+      if (!painter.visible()) return;
       drawLayer(painter, zoom, tilesets[painter.source], pixRatio);
     });
   }

@@ -1337,6 +1337,7 @@ function initCoords({ size, center, zoom, clampY = true }) {
 
     getViewport,
     getTransform: () => Object.assign({}, transform),
+    getZoom: () => Math.max(0, Math.log2(transform.k) - 9),
     getCamPos: () => camPos.slice(),
     getScale: () => scale.slice(),
 
@@ -2436,75 +2437,6 @@ function init() {
 
   function isDone(task) {
     return task && (task.canceled || task.chunks.length < 1);
-  }
-}
-
-function initRasterLoader(source) {
-  const getURL = initUrlFunc(source.tiles);
-
-  function request({ z, x, y, callback }) {
-    const href = getURL(z, x, y);
-    const errMsg = "ERROR in loadImage for href " + href;
-
-    const img = new Image();
-    img.onerror = () => callback(errMsg);
-    img.onload = () => {
-      return img.complete && img.naturalWidth !== 0
-        ? callback(null, img)
-        : callback(errMsg);
-    };
-    img.crossOrigin = "anonymous";
-    img.src = href;
-
-    function abort() {
-      img.src = "";
-    }
-
-    return { abort };
-  }
-
-  return { request };
-}
-
-function initUrlFunc(endpoints) {
-  if (!endpoints || !endpoints.length) {
-    throw Error("ERROR in initUrlFunc: no valid tile endpoints!");
-  }
-
-  // Use a different endpoint for each request
-  var index = 0;
-
-  return function(z, x, y) {
-    index = (index + 1) % endpoints.length;
-    var endpoint = endpoints[index];
-    return endpoint
-      .replace(/{z}/, z)
-      .replace(/{x}/, x)
-      .replace(/{y}/, y);
-  };
-}
-
-function buildFactory({ loader, reporter }) {
-  return function(z, x, y) {
-    let id = [z, x, y].join("/");
-    const tile = { z, x, y, id, priority: 0 };
-
-    function callback(err, data) {
-      if (err) return; // console.log(err);
-      tile.data = data;
-      tile.ready = true;
-      reporter.dispatchEvent(new Event("tileLoaded"));
-    }
-
-    const getPriority = () => tile.priority;
-    const loadTask = loader.request({ z, x, y, getPriority, callback });
-
-    tile.cancel = () => {
-      loadTask.abort();
-      tile.canceled = true;
-    };
-
-    return tile;
   }
 }
 
@@ -8697,32 +8629,6 @@ function initTileMixer(userParams) {
   };
 }
 
-function initBoundsCheck(source) {
-  const {
-    minzoom = 0,
-    maxzoom = 30,
-    bounds = [-180, -90, 180, 90],
-    scheme = "xyz",
-  } = source;
-
-  // Convert bounds to Web Mercator (the projection ASSUMED by tilejson-spec)
-  const radianBounds = bounds.map(c => c * Math.PI / 180.0);
-  let [xmin, ymax] = forward(radianBounds.slice(0, 2));
-  let [xmax, ymin] = forward(radianBounds.slice(2, 4));
-  if (scheme === "tms") [ymin, ymax] = [ymax, ymin];
-
-  return function(z, x, y) {
-    // Return true if out of bounds
-    if (z < minzoom || maxzoom < z) return true;
-
-    let zFac = 1 / 2 ** z;
-    if ((x + 1) * zFac < xmin || xmax < x * zFac) return true;
-    if ((y + 1) * zFac < ymin || ymax < y * zFac) return true;
-
-    return false;
-  }
-}
-
 function initCache({ create, size = 512 }) {
   const tiles = {};
   const dzmax = Math.log2(size);
@@ -8786,6 +8692,89 @@ function initCache({ create, size = 512 }) {
       }
     }
     return numTiles;
+  }
+}
+
+function initCaches({ context, glyphs }) {
+  const queue = init();
+  const reporter = document.createElement("div");
+  
+  function addSource({ source, layers }) {
+    const loader = initLoader(source, layers);
+    const factory = buildFactory({ loader, reporter });
+    const { tileSize = 512 } = source;
+    return initCache({ create: factory, size: tileSize });
+  }
+
+  function initLoader(source, layers) {
+    switch (source.type) {
+      case "vector":
+      case "geojson":
+        return initTileMixer({
+          context, queue, glyphs, source, layers,
+          threads: (source.type === "geojson") ? 1 : 2,
+        });
+      case "raster":
+        //return initRasterLoader(source, layers);
+      default: return;
+    }
+  }
+
+  return {
+    addSource,
+    sortTasks: queue.sortTasks,
+    queuedTasks: queue.countTasks,
+    reporter,
+  };
+}
+
+function buildFactory({ loader, reporter }) {
+  return function(z, x, y) {
+    let id = [z, x, y].join("/");
+    const tile = { z, x, y, id, priority: 0 };
+
+    function callback(err, data) {
+      if (err) return; // console.log(err);
+      tile.data = data;
+      tile.ready = true;
+      reporter.dispatchEvent(new Event("tileLoaded"));
+    }
+
+    const getPriority = () => tile.priority;
+    const loadTask = loader.request({ z, x, y, getPriority, callback });
+
+    tile.cancel = () => {
+      loadTask.abort();
+      tile.canceled = true;
+    };
+
+    return tile;
+  }
+}
+
+function initBoundsCheck(source) {
+  const {
+    minzoom = 0,
+    maxzoom = 30,
+    bounds = [-180, -90, 180, 90],
+    scheme = "xyz",
+  } = source;
+
+  // Convert bounds to Web Mercator (the projection ASSUMED by tilejson-spec)
+  const radianBounds = bounds.map(c => c * Math.PI / 180.0);
+  let [xmin, ymax] = forward(radianBounds.slice(0, 2));
+  let [xmax, ymin] = forward(radianBounds.slice(2, 4));
+  if (scheme === "tms") [ymin, ymax] = [ymax, ymin];
+
+  return function(z, x, y) {
+    // Return true if out of bounds
+    if (z < minzoom || maxzoom < z) return true;
+
+    let zFac = 1 / 2 ** z;
+    if ((x + 1) * zFac < xmin || xmax < x * zFac) return true;
+    if ((y + 1) * zFac < ymin || ymax < y * zFac) return true;
+
+    return false;
   }
 }
 
@@ -8933,11 +8922,10 @@ function getTileMetric(layout, tileset, padding = 0.595) {
   };
 }
 
-function initSource({ key, source, tileFactory }) {
+function initTileGrid({ key, source, tileCache }) {
   const { tileSize = 512, maxzoom = 30 } = source;
   const outOfBounds = initBoundsCheck(source);
 
-  const cache = initCache({ create: tileFactory, size: tileSize });
   var numTiles = 0;
 
   // Set up the tile layout
@@ -8953,8 +8941,8 @@ function initSource({ key, source, tileFactory }) {
 
     // Update tile priorities based on the new grid
     const metric = getTileMetric(layout, tiles);
-    cache.process(tile => { tile.priority = metric(tile); });
-    numTiles = cache.drop(tile => metric(tile) > 0.75);
+    tileCache.process(tile => { tile.priority = metric(tile); });
+    numTiles = tileCache.drop(tile => metric(tile) > 0.75);
     const stopCondition = ([z, x, y]) => metric({ z, x, y }) > 0.75;
 
     // Retrieve a tile box for every tile in the grid
@@ -8967,7 +8955,7 @@ function initSource({ key, source, tileFactory }) {
         return;
       }
 
-      let box = cache.retrieve([zw, xw, yw], stopCondition);
+      let box = tileCache.retrieve([zw, xw, yw], stopCondition);
       if (!box) return;
 
       tilesDone += (box.sw / tileSize) ** 2;
@@ -8984,47 +8972,36 @@ function initSource({ key, source, tileFactory }) {
   return { key, getTiles, numTiles: () => numTiles };
 }
 
-function initSources(style, context) {
+function initSources(style, context, coords) {
   const { glyphs, sources: sourceDescriptions, layers } = style;
 
-  const reporter = document.createElement("div");
-  const queue = init();
-  const workerMonitors = [];
+  const caches = initCaches({ context, glyphs });
   const tilesets = {};
   const layerSources = layers.reduce((d, l) => (d[l.id] = l.source, d), {});
 
-  const sources = Object.entries(sourceDescriptions).map(([key, source]) => {
-    let loader = 
-      (source.type === "raster") ? initRasterLoader(source)
-      : (source.type === "vector") ? initVectorLoader(key, source)
-      : undefined;
-    if (!loader) return;
-
-    let tileFactory = buildFactory({ loader, reporter });
-    return initSource({ key, source, tileFactory });
-  }).filter(s => s !== undefined);
-
-  function initVectorLoader(key, source) {
+  const grids = Object.entries(sourceDescriptions).map(([key, source]) => {
     let subset = layers.filter(l => l.source === key);
     if (!subset.length) return;
 
-    let loader = initTileMixer({
-      context, queue, glyphs, source,
-      threads: (source.type === "geojson") ? 1 : 2,
-      layers: layers.filter(l => l.source === key),
-    });
+    let tileCache = caches.addSource({ source, layers: subset });
+    if (!tileCache) return;
+    let grid = initTileGrid({ key, source, tileCache });
 
-    workerMonitors.push(loader.workerTasks);
-    return loader;
-  }
+    grid.layers = subset;
+    return grid;
+  }).filter(s => s !== undefined);
 
-  function loadTilesets(viewport, transform, pixRatio = 1) {
-    sources.forEach(s => {
-      tilesets[s.key] = s.getTiles(viewport, transform, pixRatio);
+  function loadTilesets(pixRatio = 1) {
+    const transform = coords.getTransform();
+    const viewport = coords.getViewport(pixRatio);
+    grids.forEach(grid => {
+      // Make sure data from this source is still being displayed
+      if (!grid.layers.some(l => l.visible)) return;
+      tilesets[grid.key] = grid.getTiles(viewport, transform, pixRatio);
     });
-    queue.sortTasks();
+    caches.sortTasks();
     const loadStatus = Object.values(tilesets).map(t => t.loaded)
-      .reduce((s, l) => s + l) / sources.length;
+      .reduce((s, l) => s + l) / grids.length;
     return loadStatus;
   }
 
@@ -9032,9 +9009,8 @@ function initSources(style, context) {
     tilesets,
     getLayerTiles: (layer) => tilesets[layerSources[layer]],
     loadTilesets,
-    workerTasks: () => workerMonitors.reduce((s, mon) => s + mon(), 0),
-    queuedTasks: () => taskQueue.countTasks(),
-    reporter,
+    queuedTasks: caches.queuedTasks,
+    reporter: caches.reporter,
   };
 }
 
@@ -9296,10 +9272,17 @@ function initMapPainter(params) {
 function initRenderer$1(context, style) {
   const { sources, spriteData: spriteObject, layers } = style;
 
-  const painters = layers.map(getStyleFuncs).map(styleLayer => {
-    let source = sources[styleLayer.source];
+  const painters = layers.map(layer => {
+    let source = sources[layer.source];
     let tileSize = source ? source.tileSize : 512;
-    return initMapPainter({ context, styleLayer, spriteObject, tileSize });
+
+    let painter = initMapPainter({
+      context, spriteObject, tileSize,
+      styleLayer: getStyleFuncs(layer),
+    });
+
+    painter.visible = () => layer.visible;
+    return painter;
   });
 
   function drawLayers(tilesets, zoom, pixRatio = 1) {
@@ -9307,6 +9290,7 @@ function initRenderer$1(context, style) {
     context.clear();
     painters.forEach(painter => {
       if (zoom < painter.minzoom || painter.maxzoom < zoom) return;
+      if (!painter.visible()) return;
       drawLayer(painter, zoom, tilesets[painter.source], pixRatio);
     });
   }
@@ -10633,23 +10617,30 @@ function init$2(userParams) {
 }
 
 function setup(styleDoc, params, api) {
-  const sources = initSources(styleDoc, params.context);
+  const sources = initSources(styleDoc, params.context, api);
   sources.reporter.addEventListener("tileLoaded", 
     () => params.eventHandler.emitEvent("tileLoaded"),
     false);
 
+  // Set up interactive toggling of layer visibility
+  styleDoc.layers.forEach(l => {
+    // TODO: use functionalized visibility from tile-stencil?
+    let visibility = l.layout ? l.layout.visibility : false;
+    l.visible = (!visibility || visibility === "visible");
+  });
+
+  function setLayerVisibility(id, visibility) {
+    const layer = styleDoc.layers.find(l => l.id === id);
+    if (layer) layer.visible = visibility;
+  }
+  api.hideLayer = (id) => setLayerVisibility(id, false);
+  api.showLayer = (id) => setLayerVisibility(id, true);
+
   const render = initRenderer$1(params.context, styleDoc);
 
   api.draw = function(pixRatio = 1) {
-    const transform = api.getTransform();
-    const viewport = api.getViewport(pixRatio);
-
-    const loadStatus = sources.loadTilesets(viewport, transform, pixRatio);
-
-    // Zoom for styling is always based on tilesize 512px (2^9) in CSS pixels
-    const zoom = Math.max(0, Math.log2(transform.k) - 9);
-    render(sources.tilesets, zoom, pixRatio);
-
+    const loadStatus = sources.loadTilesets(pixRatio);
+    render(sources.tilesets, api.getZoom(), pixRatio);
     return loadStatus;
   };
 

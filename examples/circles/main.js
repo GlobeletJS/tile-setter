@@ -44,6 +44,11 @@ function setup(api) {
     mouse = d3.pointer(event);
   });
 
+  document.getElementById("showWells")
+    .addEventListener('click', () => api.showLayer("twdb-groundwater-v2"), false);
+  document.getElementById("hideWells")
+    .addEventListener('click', () => api.hideLayer("twdb-groundwater-v2"), false);
+
   const loadStatus = document.getElementById("loadStatus");
   const infoBox = document.getElementById("info");
 
