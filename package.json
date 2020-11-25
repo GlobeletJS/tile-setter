@@ -33,7 +33,7 @@
   "devDependencies": {
     "@turf/boolean-point-in-polygon": "^6.0.1",
     "d3": "^6.2.0",
-    "rollup": "^2.32.0",
+    "rollup": "^2.33.2",
     "rollup-plugin-commonjs": "^10.1.0",
     "rollup-plugin-node-resolve": "^5.2.0",
     "yawgl": "^0.2.0"
@@ -45,6 +45,6 @@
     "tile-mixer": "github:GlobeletJS/tile-mixer",
     "tile-painter": "github:GlobeletJS/tile-painter#webgl",
     "tile-rack": "^1.0.2",
-    "tile-stencil": "^0.2.5"
+    "tile-stencil": "^0.3.1"
   }
 }

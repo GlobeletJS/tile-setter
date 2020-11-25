@@ -1,5 +1,8 @@
 import * as yawgl from 'yawgl';
-import * as d3 from 'd3';
+//import * as d3 from 'd3';
+//import { zoomIdentity, zoom, select } from 'd3';
+import { zoomIdentity, zoom } from 'd3-zoom';
+import { select } from 'd3-selection';
 import * as tileMap from "../../dist/tile-setter.bundle.js";
 
 export function main() {
@@ -12,7 +15,8 @@ export function main() {
     gl,
     center: [-73.885, 40.745],
     zoom: 9,
-    style: "mapbox://styles/mapbox/streets-v8",
+    //style: "mapbox://styles/mapbox/streets-v8",
+    style: "./streets-v8-noInteractive.json",
     mapboxToken: "pk.eyJ1IjoiamhlbWJkIiwiYSI6ImNqcHpueHpyZjBlMjAzeG9kNG9oNzI2NTYifQ.K7fqhk2Z2YZ8NIV94M-5nA",
   }).promise.then(setup)
     .catch(console.log);
@@ -23,11 +27,11 @@ function setup(api) {
   const canvas = api.gl.canvas;
 
   const { k, x, y } = api.getTransform();
-  var transform = d3.zoomIdentity
+  var transform = zoomIdentity
     .translate(x, y)
     .scale(k);
 
-  const zoomer = d3.zoom()
+  const zoomer = zoom()
     .scaleExtent([1 << 10, 1 << 26])
     .extent([[0, 0], viewport])
     .translateExtent([[-Infinity, -0.5], [Infinity, 0.5]])
@@ -35,7 +39,7 @@ function setup(api) {
       transform = event.transform;
     });
 
-  d3.select(canvas)
+  select(canvas)
     .call(zoomer)
     .call(zoomer.transform, transform);
 

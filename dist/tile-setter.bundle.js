@@ -1,62 +1,1106 @@
-function initTransform(framebufferSize) {
-  const scalar      = new Float64Array(2); // a, d
-  const skew        = new Float64Array(2); // c, b
-  const translation = new Float64Array(2); // e, f
+function initTransform(gl, framebuffer, framebufferSize) {
+  const mapCoords   = new Float64Array(4); // x, y, z, extent of tileset[0]
+  const mapShift    = new Float64Array(3); // translate and extent of tileset[0] 
+  const screenScale = new Float64Array(3); // 2 / width, -2 / height, pixRatio
 
-  function getTransform() {
-    let [a, d] = scalar;
-    let [c, b] = skew;
-    let [e, f] = translation;
-    return [a, b, c, d, e, f];
+  function setMapCoords(x, y, z, extent) {
+    mapCoords.set([x, y, z, extent]);
   }
 
-  function reset() {
+  function setMapShift(tx, ty, scale) {
+    mapShift.set([tx, ty, scale]);
+  }
+
+  function bindFramebufferAndSetViewport(pixRatio = 1) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
     let { width, height } = framebufferSize;
-
-    scalar[0] = 2 / width;
-    scalar[1] = -2 / height;
-    skew[0] = 0;
-    skew[1] = 0;
-    translation[0] = -1;
-    translation[1] = 1;
+    gl.viewport(0, 0, width, height);
+    screenScale.set([2 / width, -2 / height, pixRatio]);
   }
 
-  function setTransform(a, b, c, d, e, f) {
-    reset();
-    transform(a, b, c, d, e, f);
-  }
+  return {
+    methods: {
+      setMapCoords,
+      setMapShift,
+      bindFramebufferAndSetViewport,
+    },
 
-  function transform(a, b, c, d, e, f) {
-    translate(e, f);
-    let [a0, d0] = scalar;
-    scalar[0] = a0 * a + skew[0] * b;
-    scalar[1] = d0 * d + skew[1] * c;
-    skew[0] = a0 * c + skew[0] * d;
-    skew[1] = d0 * b + skew[1] * a;
-  }
+    mapCoords,
+    mapShift,
+    screenScale,
+  };
+}
 
-  function translate(e, f) {
-    translation[0] += scalar[0] * e + skew[0] * f;
-    translation[1] += scalar[1] * f + skew[1] * e;
-  }
+function initUniforms(transform) {
+  const { mapCoords, mapShift, screenScale } = transform;
 
-  function scale(a, d) {
-    scalar[0] *= a;
-    scalar[1] *= d;
-    skew[0] *= d;
-    skew[1] *= a;
-  }
-
-  // Mimic Canvas2D API
-  const methods = {
-    transform,
-    translate,
-    scale,
-    setTransform,
-    getTransform,
+  const uniforms = {
+    mapCoords, mapShift, screenScale, // Pointers. Values updated outside
+    translation: new Float32Array([0, 0]),
+    fillStyle: new Float32Array([0, 0, 0, 1]),
+    strokeStyle: new Float32Array([0, 0, 0, 1]),
+    globalAlpha: 1.0,
+    lineWidth: 1.0,
+    circleRadius: 5.0,
+    miterLimit: 10.0,
+    sdf: null,
+    sdfDim: [256, 256],
   };
 
-  return { scalar, skew, translation, methods };
+  const setters = {
+    set globalAlpha(val) {
+      if (val < 0.0 || val > 1.0) return;
+      uniforms.globalAlpha = val;
+    },
+    set fillStyle(val) {
+      uniforms.fillStyle.set(val);
+    },
+    set strokeStyle(val) {
+      uniforms.strokeStyle.set(val);
+    },
+    set lineWidth(val) {
+      uniforms.lineWidth = val;
+    },
+    set circleRadius(val) {
+      uniforms.circleRadius = val;
+    },
+    set miterLimit(val) {
+      uniforms.miterLimit = val;
+    },
+    set font(val) {
+      uniforms.sdf = val.sampler;
+      uniforms.sdfDim = [val.width, val.height];
+    },
+    set translation(val) {
+      if (!val || val.length !== 2) return;
+      uniforms.translation.set(val);
+    },
+    // TODO: implement dashed lines, patterns
+    setLineDash: () => null,
+    createPattern: () => null,
+  };
+
+  return { values: uniforms, setters };
+}
+
+function createUniformSetter(gl, program, info, textureUnit) {
+  const { name, type, size } = info;
+  const isArray = name.endsWith("[0]");
+  const loc = gl.getUniformLocation(program, name);
+
+  switch (type) {
+    case gl.FLOAT:
+      return (isArray)
+        ? (v) => gl.uniform1fv(loc, v)
+        : (v) => gl.uniform1f(loc, v);
+    case gl.FLOAT_VEC2:
+      return (v) => gl.uniform2fv(loc, v);
+    case gl.FLOAT_VEC3:
+      return (v) => gl.uniform3fv(loc, v);
+    case gl.FLOAT_VEC4:
+      return (v) => gl.uniform4fv(loc, v);
+    case gl.INT:
+      return (isArray)
+        ? (v) => gl.uniform1iv(loc, v)
+        : (v) => gl.uniform1i(loc, v);
+    case gl.INT_VEC2:
+      return (v) => gl.uniform2iv(loc, v);
+    case gl.INT_VEC3:
+      return (v) => gl.uniform3iv(loc, v);
+    case gl.INT_VEC4:
+      return (v) => gl.uniform4iv(loc, v);
+    case gl.BOOL:
+      return (v) => gl.uniform1iv(loc, v);
+    case gl.BOOL_VEC2:
+      return (v) => gl.uniform2iv(loc, v);
+    case gl.BOOL_VEC3:
+      return (v) => gl.uniform3iv(loc, v);
+    case gl.BOOL_VEC4:
+      return (v) => gl.uniform4iv(loc, v);
+    case gl.FLOAT_MAT2:
+      return (v) => gl.uniformMatrix2fv(loc, false, v);
+    case gl.FLOAT_MAT3:
+      return (v) => gl.uniformMatrix3fv(loc, false, v);
+    case gl.FLOAT_MAT4:
+      return (v) => gl.uniformMatrix4fv(loc, false, v);
+    case gl.SAMPLER_2D:
+      return getTextureSetter(gl.TEXTURE_2D);
+    case gl.SAMPLER_CUBE:
+      return getTextureSetter(gl.TEXTURE_CUBE_MAP);
+    default:  // we should never get here
+      throw("unknown type: 0x" + type.toString(16));
+  }
+
+  function getTextureSetter(bindPoint) {
+    return (size > 1)
+      ? buildTextureArraySetter(bindPoint)
+      : buildTextureSetter(bindPoint);
+  }
+
+  function buildTextureSetter(bindPoint) {
+    return function(texture) {
+      gl.uniform1i(loc, textureUnit);
+      gl.activeTexture(gl.TEXTURE0 + textureUnit);
+      gl.bindTexture(bindPoint, texture);
+    };
+  }
+
+  function buildTextureArraySetter(bindPoint) {
+    const units = Array.from(Array(size), () => textureUnit++);
+    return function(textures) {
+      gl.uniform1iv(loc, units);
+      textures.forEach((texture, i) => {
+        gl.activeTexture(gl.TEXTURE0 + units[i]);
+        gl.bindTexture(bindPoint, texture);
+      });
+    };
+  }
+}
+
+function createUniformSetters(gl, program) {
+  const typeSizes = {
+    [gl.FLOAT]: 1,
+    [gl.FLOAT_VEC2]: 2,
+    [gl.FLOAT_VEC3]: 3,
+    [gl.FLOAT_VEC4]: 4,
+    [gl.INT]: 1,
+    [gl.INT_VEC2]: 2,
+    [gl.INT_VEC3]: 3,
+    [gl.INT_VEC4]: 4,
+    [gl.BOOL]: 1,
+    [gl.BOOL_VEC2]: 2,
+    [gl.BOOL_VEC3]: 3,
+    [gl.BOOL_VEC4]: 4,
+    [gl.FLOAT_MAT2]: 4,
+    [gl.FLOAT_MAT3]: 9,
+    [gl.FLOAT_MAT4]: 16,
+    [gl.SAMPLER_2D]: 1,
+    [gl.SAMPLER_CUBE]: 1,
+  };
+
+  const numUniforms = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
+  const uniformInfo = Array.from({ length: numUniforms })
+    .map((v, i) => gl.getActiveUniform(program, i))
+    .filter(info => info !== undefined);
+
+  var textureUnit = 0;
+
+  return uniformInfo.reduce((d, info) => {
+    let { name, type, size } = info;
+    let isArray = name.endsWith("[0]");
+    let key = isArray ? name.slice(0, -3) : name;
+
+    //let setter = createUniformSetter(gl, program, info, textureUnit);
+    //d[key] = wrapSetter(setter, isArray, type, size);
+    d[key] = createUniformSetter(gl, program, info, textureUnit);
+
+    if (type === gl.TEXTURE_2D || type === gl.TEXTURE_CUBE_MAP) {
+      textureUnit += size;
+    }
+
+    return d;
+  }, {});
+}
+
+function setUniforms(setters, values) {
+  Object.entries(values).forEach(([key, val]) => {
+    var setter = setters[key];
+    if (setter) setter(val);
+  });
+}
+
+function getVao(gl, program, attributeState) {
+  const { attributes, indices } = attributeState;
+
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+
+  Object.entries(attributes).forEach(([name, a]) => {
+    var index = gl.getAttribLocation(program, name);
+    if (index < 0) return;
+
+    gl.enableVertexAttribArray(index);
+    gl.bindBuffer(gl.ARRAY_BUFFER, a.buffer);
+    gl.vertexAttribPointer(
+      index, // index of attribute in program
+      a.numComponents || a.size, // Number of elements to read per vertex
+      a.type || gl.FLOAT, // Type of each element
+      a.normalize || false, // Whether to normalize it
+      a.stride || 0, // Byte spacing between vertices
+      a.offset || 0 // Byte # to start reading from
+    );
+    gl.vertexAttribDivisor(index, a.divisor || 0);
+  });
+
+  if (indices) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indices.buffer);
+
+  gl.bindVertexArray(null);
+  return vao;
+}
+
+function initProgram(gl, vertexSrc, fragmentSrc) {
+  const program = gl.createProgram();
+  gl.attachShader(program, loadShader(gl, gl.VERTEX_SHADER, vertexSrc));
+  gl.attachShader(program, loadShader(gl, gl.FRAGMENT_SHADER, fragmentSrc));
+  gl.linkProgram(program);
+
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    fail("Unable to link the program", gl.getProgramInfoLog(program));
+  }
+
+  const uniformSetters = createUniformSetters(gl, program);
+
+  function setupDraw(uniforms) {
+    gl.useProgram(program);
+    setUniforms(uniformSetters, uniforms);
+  }
+
+  return { gl, setupDraw,
+    constructVao: (attributeState) => getVao(gl, program, attributeState),
+  };
+}
+
+function loadShader(gl, type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    let log = gl.getShaderInfoLog(shader);
+    gl.deleteShader(shader);
+    fail("An error occured compiling the shader", log);
+  }
+
+  return shader;
+}
+
+function fail(msg, log) {
+  throw Error("yawgl.initProgram: " + msg + ":\n" + log);
+}
+
+var preamble = `precision highp float;
+
+attribute vec3 tileCoords;
+
+uniform vec4 mapCoords;   // x, y, z, extent of tileset[0]
+uniform vec3 mapShift;    // translate and scale of tileset[0]
+
+uniform vec3 screenScale; // 2 / width, -2 / height, pixRatio
+
+vec2 tileToMap(vec2 tilePos) {
+  // Find distance of this tile from top left tile, in tile units
+  float zoomFac = exp2(mapCoords.z - tileCoords.z);
+  vec2 dTile = zoomFac * tileCoords.xy - mapCoords.xy;
+  dTile.x += (dTile.x < 0.0) ? exp2(mapCoords.z) : 0.0;
+
+  // Convert to a translation in pixels
+  vec2 tileTranslate = dTile * mapShift.z + mapShift.xy;
+
+  // Find scaling between tile coordinates and screen pixels
+  float tileScale = zoomFac * mapShift.z / mapCoords.w;
+
+  return tilePos * tileScale + tileTranslate;
+}
+
+vec4 mapToClip(vec2 mapPos, float z) {
+  vec2 projected = mapPos * screenScale.xy + vec2(-1.0, 1.0);
+  return vec4(projected, z, 1);
+}
+`;
+
+var textVert = `attribute vec2 quadPos;  // Vertices of the quad instance
+attribute vec2 labelPos; // x, y
+attribute vec3 charPos;  // dx, dy, scale (relative to labelPos)
+attribute vec4 sdfRect;  // x, y, w, h
+
+varying vec2 texCoord;
+
+void main() {
+  texCoord = sdfRect.xy + sdfRect.zw * quadPos;
+
+  vec2 mapPos = tileToMap(labelPos);
+
+  // Shift to the appropriate corner of the current instance quad
+  vec2 dPos = (charPos.xy + sdfRect.zw * quadPos) * charPos.z * screenScale.z;
+
+  gl_Position = mapToClip(mapPos + dPos, 0.0);
+}
+`;
+
+var textFrag = `precision highp float;
+
+uniform sampler2D sdf;
+uniform vec2 sdfDim;
+uniform vec4 fillStyle;
+uniform float globalAlpha;
+
+varying vec2 texCoord;
+
+void main() {
+  float sdfVal = texture2D(sdf, texCoord / sdfDim).a;
+  // Find taper width: ~ dScreenPixels / dTexCoord
+  float screenScale = 1.414 / length(fwidth(texCoord));
+  float screenDist = screenScale * (191.0 - 255.0 * sdfVal) / 32.0;
+
+  // TODO: threshold 0.5 looks too pixelated. Why?
+  float alpha = smoothstep(-0.8, 0.8, -screenDist);
+  gl_FragColor = fillStyle * (alpha * globalAlpha);
+}
+`;
+
+var fillVert = `attribute vec2 a_position;
+
+uniform vec2 translation;   // From style property paint["fill-translate"]
+
+void main() {
+  vec2 mapPos = tileToMap(a_position) + translation * screenScale.z;
+
+  gl_Position = mapToClip(mapPos, 0.0);
+}
+`;
+
+var fillFrag = `precision mediump float;
+
+uniform vec4 fillStyle;
+uniform float globalAlpha;
+
+void main() {
+    gl_FragColor = fillStyle * globalAlpha;
+}
+`;
+
+var strokeVert = `attribute vec2 position;
+attribute vec3 pointA, pointB, pointC, pointD;
+
+uniform float lineWidth, miterLimit;
+
+varying float yCoord;
+varying vec2 miterCoord1, miterCoord2;
+
+mat3 miterTransform(vec2 xHat, vec2 yHat, vec2 v, float pixWidth) {
+  // Find a coordinate basis vector aligned along the bisector
+  bool isCap = length(v) < 0.0001; // TODO: think about units
+  vec2 vHat = (isCap)
+    ? xHat // Treat v = 0 like 180 deg turn
+    : normalize(v);
+  vec2 m0 = (dot(xHat, vHat) < -0.9999)
+    ? yHat // For vHat == -xHat
+    : normalize(xHat + vHat);
+  
+  // Find a perpendicular basis vector, pointing toward xHat
+  float x_m0 = dot(xHat, m0);
+  vec2 m1 = (x_m0 < 0.9999)
+    ? normalize(xHat - vHat)
+    : yHat;
+
+  // Compute miter length
+  float sin2 = 1.0 - x_m0 * x_m0; // Could be zero!
+  float miterLength = (sin2 > 0.0001)
+    ? inversesqrt(sin2)
+    : miterLimit + 1.0;
+  float bevelLength = abs(dot(yHat, m0));
+  float tx = (miterLength > miterLimit)
+    ? 0.5 * pixWidth * bevelLength
+    : 0.5 * pixWidth * miterLength;
+
+  float ty = isCap ? 1.2 * pixWidth : 0.0;
+
+  return mat3(m0.x, m1.x, 0, m0.y, m1.y, 0, tx, ty, 1);
+}
+
+void main() {
+  // Transform vertex positions from tile to map coordinates
+  vec2 mapA = tileToMap(pointA.xy);
+  vec2 mapB = tileToMap(pointB.xy);
+  vec2 mapC = tileToMap(pointC.xy);
+  vec2 mapD = tileToMap(pointD.xy);
+
+  vec2 xAxis = mapC - mapB;
+  vec2 xBasis = normalize(xAxis);
+  vec2 yBasis = vec2(-xBasis.y, xBasis.x);
+
+  // Get coordinate transforms for the miters
+  float pixWidth = lineWidth * screenScale.z;
+  mat3 m1 = miterTransform(xBasis, yBasis, mapA - mapB, pixWidth);
+  mat3 m2 = miterTransform(-xBasis, yBasis, mapD - mapC, pixWidth);
+
+  // Find the position of the current instance vertex, in 3 coordinate systems
+  vec2 extend = miterLimit * xBasis * pixWidth * (position.x - 0.5);
+  // Add one pixel on either side of the line for the anti-alias taper
+  float y = (pixWidth + 2.0) * position.y;
+  vec2 point = mapB + xAxis * position.x + yBasis * y + extend;
+  miterCoord1 = (m1 * vec3(point - mapB, 1)).xy;
+  miterCoord2 = (m2 * vec3(point - mapC, 1)).xy;
+
+  // Remove pixRatio from varying (we taper edges using unscaled value)
+  yCoord = y / screenScale.z;
+
+  gl_Position = mapToClip(point, pointB.z + pointC.z);
+}
+`;
+
+var strokeFrag = `precision highp float;
+
+uniform vec4 strokeStyle;
+uniform float lineWidth, globalAlpha;
+
+varying float yCoord;
+varying vec2 miterCoord1, miterCoord2;
+
+void main() {
+  float step0 = fwidth(yCoord) * 0.707;
+  vec2 step1 = fwidth(miterCoord1) * 0.707;
+  vec2 step2 = fwidth(miterCoord2) * 0.707;
+
+  // Antialiasing for edges of lines
+  float outside = -0.5 * lineWidth - step0;
+  float inside = -0.5 * lineWidth + step0;
+  float antialias = smoothstep(outside, inside, -abs(yCoord));
+
+  // Bevels, endcaps: Use smooth taper for antialiasing
+  float taperx = 
+    smoothstep(-step1.x, step1.x, miterCoord1.x) *
+    smoothstep(-step2.x, step2.x, miterCoord2.x);
+
+  // Miters: Use hard step, slightly shifted to avoid overlap at center
+  float tapery = 
+    step(-0.01 * step1.y, miterCoord1.y) *
+    step(0.01 * step2.y, miterCoord2.y);
+
+  vec4 premult = vec4(strokeStyle.rgb * strokeStyle.a, strokeStyle.a);
+  gl_FragColor = premult * globalAlpha * antialias * taperx * tapery;
+}
+`;
+
+var circleVert = `attribute vec2 quadPos; // Vertices of the quad instance
+attribute vec2 circlePos;
+
+uniform float circleRadius;
+
+varying vec2 delta;
+
+void main() {
+  vec2 mapPos = tileToMap(circlePos);
+
+  // Shift to the appropriate corner of the current instance quad
+  delta = 2.0 * quadPos * (circleRadius + 1.0);
+  vec2 dPos = delta * screenScale.z;
+
+  gl_Position = mapToClip(mapPos + dPos, 0.0);
+}
+`;
+
+var circleFrag = `precision mediump float;
+
+uniform highp float circleRadius;
+uniform vec4 strokeStyle;
+uniform float globalAlpha;
+
+varying vec2 delta;
+
+void main() {
+  float r = length(delta);
+  float dr = fwidth(r);
+
+  float taper = 1.0 - smoothstep(circleRadius - dr, circleRadius + dr, r);
+  gl_FragColor = strokeStyle * globalAlpha * taper;
+}
+`;
+
+const shaders = {
+  text: {
+    vert: preamble + textVert,
+    frag: textFrag,
+  },
+  fill: {
+    vert: preamble + fillVert,
+    frag: fillFrag,
+  },
+  line: {
+    vert: preamble + strokeVert,
+    frag: strokeFrag,
+  },
+  circle: {
+    vert: preamble + circleVert,
+    frag: circleFrag,
+  },
+};
+
+function initQuad(gl, instanceGeom) {
+  const { x0, y0, w = 1.0, h = 1.0 } = instanceGeom;
+
+  const triangles = new Float32Array([
+    x0, y0,  x0 + w, y0,  x0 + w, y0 + h,
+    x0, y0,  x0 + w, y0 + h,  x0, y0 + h,
+  ]);
+
+  // Create a buffer with the position of the vertices within one instance
+  return initAttribute(gl, { data: triangles, divisor: 0 });
+}
+
+function initAttribute(gl, options) {
+  // Set defaults for unsupplied values
+  const {
+    buffer = createBuffer(gl, options.data),
+    numComponents = 2,
+    type = gl.FLOAT,
+    normalize = false,
+    stride = 0,
+    offset = 0,
+    divisor = 1,
+  } = options;
+
+  // Return attribute state object
+  return { buffer, numComponents, type, normalize, stride, offset, divisor };
+}
+
+function createBuffer(gl, data) {
+  const buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+  return buffer;
+}
+
+function initCircleLoader(gl, constructVao) {
+  const quadPos = initQuad(gl, { x0: -0.5, y0: -0.5 });
+
+  return function(buffers) {
+    const { points, tileCoords } = buffers;
+
+    const attributes = { 
+      quadPos, 
+      circlePos: initAttribute(gl, { data: points }),
+      tileCoords: initAttribute(gl, { data: tileCoords, numComponents: 3 }),
+    };
+    const circleVao = constructVao({ attributes });
+
+    return { circleVao, numInstances: points.length / 2 };
+  };
+}
+
+function initLineLoader(gl, constructVao) {
+  const position = initQuad(gl, { x0: 0.0, y0: -0.5 });
+
+  const numComponents = 3;
+  const stride = Float32Array.BYTES_PER_ELEMENT * numComponents;
+
+  return function(buffers) {
+    const { lines, tileCoords } = buffers;
+
+    // Create buffer containing the vertex positions
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, lines, gl.STATIC_DRAW);
+
+    // Create interleaved attributes pointing to different offsets in buffer
+    const attributes = {
+      position,
+      pointA: setupPoint(0),
+      pointB: setupPoint(1),
+      pointC: setupPoint(2),
+      pointD: setupPoint(3),
+      tileCoords: initAttribute(gl, { data: tileCoords, numComponents: 3 }),
+    };
+
+    function setupPoint(shift) {
+      const offset = shift * stride;
+      return initAttribute(gl, { buffer, numComponents, stride, offset });
+    }
+
+    const strokeVao = constructVao({ attributes });
+
+    return { strokeVao, numInstances: lines.length / numComponents - 3 };
+  };
+}
+
+function initFillLoader(gl, constructVao, lineLoader) {
+  return function(buffers) {
+    const { vertices, indices: indexData, lines, tileCoords } = buffers;
+
+    const attributes = {
+      a_position: initAttribute(gl, { data: vertices, divisor: 0 }),
+      tileCoords: initAttribute(gl, { data: tileCoords, numComponents: 3 }),
+    };
+
+    const indices = {
+      buffer: gl.createBuffer(),
+      vertexCount: indexData.length,
+      type: gl.UNSIGNED_SHORT,
+      offset: 0
+    };
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indices.buffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexData, gl.STATIC_DRAW);
+
+    const fillVao = constructVao({ attributes, indices });
+    return { fillVao, indices };
+  };
+}
+
+function initTextLoader(gl, constructVao) {
+  const quadPos = initQuad(gl, { x0: 0.0, y0: 0.0 });
+
+  return function(buffers) {
+    const { origins, deltas, rects, tileCoords } = buffers;
+
+    const attributes = {
+      quadPos,
+      labelPos: initAttribute(gl, { data: origins }),
+      charPos: initAttribute(gl, { data: deltas, numComponents: 3 }),
+      sdfRect: initAttribute(gl, { data: rects, numComponents: 4 }),
+      tileCoords: initAttribute(gl, { data: tileCoords, numComponents: 3 }),
+    };
+    const textVao = constructVao({ attributes });
+
+    return { textVao, numInstances: origins.length / 2 };
+  };
+}
+
+function initBufferLoader(gl, programs) {
+  const { circle, line, fill, text } = programs;
+
+  const loadCircle = initCircleLoader(gl, circle.constructVao);
+  const loadLine = initLineLoader(gl, line.constructVao);
+  const loadFill = initFillLoader(gl, fill.constructVao);
+  const loadText = initTextLoader(gl, text.constructVao);
+
+  return function(buffers) {
+    if (buffers.vertices) {
+      return loadFill(buffers);
+    } else if (buffers.lines) {
+      return loadLine(buffers);
+    } else if (buffers.points) {
+      return loadCircle(buffers);
+    } else if (buffers.origins) {
+      return loadText(buffers);
+    } else {
+      throw("loadBuffers: unknown buffers structure!");
+    }
+  };
+}
+
+function initAtlasLoader(gl) {
+  return function(atlas) {
+    const { width, height, data } = atlas;
+
+    const target = gl.TEXTURE_2D;
+    const texture = gl.createTexture();
+    gl.bindTexture(target, texture);
+
+    const level = 0;
+    const format = gl.ALPHA;
+    const border = 0;
+    const type = gl.UNSIGNED_BYTE;
+
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+    gl.texImage2D(target, level, format, 
+      width, height, border, format, type, data);
+
+    gl.texParameteri(target, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(target, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+
+    return { width, height, sampler: texture };
+  };
+}
+
+function initPrograms(gl, uniforms) {
+  const programs = {
+    text: initProgram(gl, shaders.text.vert, shaders.text.frag),
+    fill: initProgram(gl, shaders.fill.vert, shaders.fill.frag),
+    line: initProgram(gl, shaders.line.vert, shaders.line.frag),
+    circle: initProgram(gl, shaders.circle.vert, shaders.circle.frag),
+  };
+
+  function fillText(buffers) {
+    let { textVao, numInstances } = buffers;
+    programs.text.setupDraw(uniforms);
+    gl.bindVertexArray(textVao);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, numInstances);
+    gl.bindVertexArray(null);
+  }
+
+  function fill(buffers) {
+    let { fillVao, indices: { vertexCount, type, offset } } = buffers;
+    programs.fill.setupDraw(uniforms);
+    gl.bindVertexArray(fillVao);
+    gl.drawElements(gl.TRIANGLES, vertexCount, type, offset);
+    gl.bindVertexArray(null);
+  }
+
+  function stroke(buffers) {
+    let { strokeVao, circleVao, numInstances } = buffers;
+    if (strokeVao) {
+      programs.line.setupDraw(uniforms);
+      gl.bindVertexArray(strokeVao);
+    } else if (circleVao) {
+      programs.circle.setupDraw(uniforms);
+      gl.bindVertexArray(circleVao);
+    } else {
+      return;
+    }
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, numInstances);
+    gl.bindVertexArray(null);
+  }
+
+  return {
+    fillText,
+    fill,
+    stroke,
+
+    loadBuffers: initBufferLoader(gl, programs),
+    loadAtlas: initAtlasLoader(gl),
+  };
+}
+
+function initGLpaint(gl, framebuffer, framebufferSize) {
+  // Input is an extended WebGL context, as created by yawgl.getExtendedContext
+  gl.disable(gl.DEPTH_TEST);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+  const transform = initTransform(gl, framebuffer, framebufferSize);
+  const uniforms = initUniforms(transform);
+  const programs = initPrograms(gl, uniforms.values);
+
+  const api = {
+    gl,
+    canvas: framebufferSize,
+
+    save: () => null,
+    restore: () => gl.disable(gl.SCISSOR_TEST),
+    clear,
+    clearRect: () => clear(), // TODO: clipRect() before clear()?
+    clipRect,
+    fillRect,
+  };
+
+  Object.assign(api, transform.methods, programs);
+  Object.defineProperties(api,
+    Object.getOwnPropertyDescriptors(uniforms.setters)
+  );
+
+  return api;
+
+  function clear(color = [0.0, 0.0, 0.0, 0.0]) {
+    gl.disable(gl.SCISSOR_TEST);
+    gl.clearColor(...color);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+
+  function clipRect(x, y, width, height) {
+    gl.enable(gl.SCISSOR_TEST);
+    let yflip = framebufferSize.height - y - height;
+    let roundedArgs = [x, yflip, width, height].map(Math.round);
+    gl.scissor(...roundedArgs);
+  }
+
+  function fillRect(x, y, width, height) {
+    clipRect(x, y, width, height);
+    let opacity = uniforms.values.globalAlpha;
+    let color = uniforms.values.fillStyle.map(c => c * opacity);
+    clear(color);
+  }
+}
+
+function initEventHandler() {
+  // Stores events and listeners. Listeners will be executed even if
+  // the event occurred before the listener was added
+
+  const events = {};    // { type1: data1, type2: data2, ... }
+  const listeners = {}; // { type1: { id1: func1, id2: func2, ...}, type2: ... }
+  var globalID = 0;
+
+  function emitEvent(type, data = "1") {
+    events[type] = data;
+
+    let audience = listeners[type];
+    if (!audience) return;
+
+    Object.values(audience).forEach(listener => listener(data));
+  }
+
+  function addListener(type, listener) {
+    if (!listeners[type]) listeners[type] = {};
+
+    let id = ++globalID;
+    listeners[type][id] = listener;
+    
+    if (events[type]) listener(events[type]);
+    return id;
+  }
+
+  function removeListener(type, id) {
+    let audience = listeners[type];
+    if (audience) delete audience[id];
+  }
+
+  return {
+    emitEvent,
+    addListener,
+    removeListener,
+  };
+}
+
+// Maximum latitude for Web Mercator: 85.0113 degrees. Beware rounding!
+const maxMercLat = 2.0 * Math.atan( Math.exp(Math.PI) ) - Math.PI / 2.0;
+const clipLat = (lat) => Math.min(Math.max(-maxMercLat, lat), maxMercLat);
+
+function forward([lon, lat]) {
+  // Convert input longitude in radians to a Web Mercator x-coordinate
+  // where x = 0 at lon = -PI, x = 1 at lon = +PI
+  let x = 0.5 + 0.5 * lon / Math.PI;
+
+  // Convert input latitude in radians to a Web Mercator y-coordinate
+  // where y = 0 at lat = maxMercLat, y = 1 at lat = -maxMercLat
+  let y = 0.5 - 0.5 / Math.PI *
+    Math.log( Math.tan(Math.PI / 4.0 + clipLat(lat) / 2.0) );
+
+  // Clip y to the range [0, 1] (it does not wrap around)
+  y = Math.min(Math.max(0.0, y), 1.0);
+
+  return [x, y];
+}
+
+function inverse([x, y]) {
+  let lon = 2.0 * (x - 0.5) * Math.PI;
+  let lat = 2.0 * Math.atan(Math.exp(Math.PI * (1.0 - 2.0 * y))) - Math.PI / 2;
+
+  return [lon, lat];
+}
+
+function scale([lon, lat]) {
+  // Return value scales a (differential) distance along the plane tangent to
+  // the sphere at [lon, lat] to a distance in map coordinates.
+  // NOTE: ASSUMES a sphere of radius 1! Input distances should be
+  //  pre-normalized by the appropriate radius
+  return 1 / (2 * Math.PI * Math.cos( clipLat(lat) ));
+}
+
+var projection = /*#__PURE__*/Object.freeze({
+  __proto__: null,
+  forward: forward,
+  inverse: inverse,
+  scale: scale
+});
+
+function initCoords({ size, center, zoom, clampY = true }) {
+  const degrees = 180 / Math.PI;
+  const minTileSize = 256;
+  const logTileSize = Math.log2(minTileSize);
+
+  const transform = { k: 1, x: 0, y: 0 };
+  const camPos = new Float64Array([0.5, 0.5]);
+  const scale = new Float64Array([1.0, 1.0]);
+
+  setCenterZoom(center, zoom);
+
+  return {
+    setTransform,
+    setCenterZoom,
+
+    getViewport,
+    getTransform: () => Object.assign({}, transform),
+    getZoom: () => Math.max(0, Math.log2(transform.k) - 9),
+    getCamPos: () => camPos.slice(),
+    getScale: () => scale.slice(),
+
+    localToGlobal,
+  };
+
+  function getViewport(pixRatio = 1) {
+    return [size.width / pixRatio, size.height / pixRatio];
+  }
+
+  function setTransform(rawTransform) {
+    // Input transforms map coordinates [x, y] into viewport coordinates
+    // Units are in pixels
+    const { k: kRaw, x: xRaw, y: yRaw } = rawTransform;
+
+    // Round kRaw to ensure tile pixels align with screen pixels
+    const z = Math.log2(kRaw) - logTileSize;
+    const z0 = Math.floor(z);
+    const tileScale = Math.round(2 ** (z - z0) * minTileSize);
+    const kNew = clampY
+      ? Math.max(2 ** z0 * tileScale, size.height)
+      : 2 ** z0 * tileScale;
+
+    // Adjust translation for the change in scale, and snap to pixel grid
+    const kScale = kNew / kRaw;
+    // Keep the same map pixel at the center of the viewport
+    const sx = kScale * xRaw + (1 - kScale) * size.width / 2;
+    const sy = kScale * yRaw + (1 - kScale) * size.height / 2;
+    // Limit Y so the map doesn't cross a pole
+    const yLim = clampY
+      ? Math.min(Math.max(-kNew / 2 + size.height, sy), kNew / 2)
+      : sy;
+    const [xNew, yNew] = [sx, yLim].map(Math.round);
+
+    // Make sure camera is still pointing at the original location: shift from 
+    // the center [0.5, 0.5] by the change in the translation due to rounding
+    camPos[0] = 0.5 + (xNew - sx) / size.width;
+    camPos[1] = 0.5 + (yNew - sy) / size.height;
+
+    // Store the scale of the current map relative to the entire world
+    scale[0] = kNew / size.width;
+    scale[1] = kNew / size.height;
+
+    // Return a flag indicating whether the transform changed
+    const { k: kOld, x: xOld, y: yOld } = transform;
+    if (kNew == kOld && xNew == xOld && yNew == yOld) return false;
+    Object.assign(transform, { k: kNew, x: xNew, y: yNew });
+    return true;
+  }
+
+  function setCenterZoom(c, z, units = 'degrees') {
+    let k = 512 * 2 ** z;
+    let lonLat = (units === 'degrees')
+      ? c.map(x => x / degrees)
+      : c;
+    let [xr, yr] = forward(lonLat);
+    
+    let x = (0.5 - xr) * k + size.width / 2;
+    let y = (0.5 - yr) * k + size.height / 2;
+
+    return setTransform({ k, x, y });
+  }
+
+  function localToGlobal([x, y]) {
+    // Convert local map pixels to global XY
+    let { x: tx, y: ty, k } = transform;
+    // tx, ty is the shift of the map center (in pixels) 
+    //   relative to the viewport origin (top left corner)
+    return [(x - tx) / k + 0.5, (y - ty) / k + 0.5];
+  }
+}
+
+function setParams(userParams) {
+  const gl = userParams.gl;
+  if (!(gl instanceof WebGLRenderingContext)) {
+    fail$1("no valid WebGL context");
+  }
+
+  const { 
+    framebuffer = null,
+    size = gl.canvas,
+    center = [0.0, 0.0],
+    zoom = 4,
+    style,
+    mapboxToken,
+    clampY = true,
+  } = userParams;
+
+  if (!(framebuffer instanceof WebGLFramebuffer) && framebuffer !== null) {
+    fail$1("no valid framebuffer");
+  }
+
+  if (!size || !allPosInts(size.width, size.height)) {
+    fail$1("invalid size object");
+  }
+
+  if (!Array.isArray(center) || !all0to1(...center.slice(2))) {
+    fail$1("invalid center coordinates");
+  }
+
+  if (!Number.isFinite(zoom)) {
+    fail$1("invalid zoom value");
+  }
+
+  return {
+    gl, framebuffer, size,
+    coords: initCoords({ size, center, zoom, clampY }),
+    style, mapboxToken,
+    context: initGLpaint(gl, framebuffer, size),
+    eventHandler: initEventHandler(),
+  };
+}
+
+function fail$1(message) {
+  throw Error("vector-map parameter check: " + message + "!");
+}
+
+function allPosInts(...vals) {
+  return vals.every(v => Number.isInteger(v) && v > 0);
+}
+
+function all0to1(...vals) {
+  return vals.every(v => Number.isFinite(v) && v >= 0 && v <= 1);
+}
+
+function expandStyleURL(url, token) {
+  var prefix = /^mapbox:\/\/styles\//;
+  if ( !url.match(prefix) ) return url;
+  var apiRoot = "https://api.mapbox.com/styles/v1/";
+  return url.replace(prefix, apiRoot) + "?access_token=" + token;
+}
+
+function expandSpriteURLs(url, token) {
+  // Returns an array containing urls to .png and .json files
+  var prefix = /^mapbox:\/\/sprites\//;
+  if ( !url.match(prefix) ) return {
+    image: url + ".png", 
+    meta: url + ".json",
+  };
+
+  // We have a Mapbox custom url. Expand to an absolute URL, as per the spec
+  var apiRoot = "https://api.mapbox.com/styles/v1/";
+  url = url.replace(prefix, apiRoot) + "/sprite";
+  var tokenString = "?access_token=" + token;
+  return {
+    image: url + ".png" + tokenString, 
+    meta: url + ".json" + tokenString,
+  };
+}
+
+function expandTileURL(url, token) {
+  var prefix = /^mapbox:\/\//;
+  if ( !url.match(prefix) ) return url;
+  var apiRoot = "https://api.mapbox.com/v4/";
+  return url.replace(prefix, apiRoot) + ".json?secure&access_token=" + token;
+}
+
+function expandGlyphURL(url, token) {
+  var prefix = /^mapbox:\/\/fonts\//;
+  if ( !url.match(prefix) ) return url;
+  var apiRoot = "https://api.mapbox.com/fonts/v1/";
+  return url.replace(prefix, apiRoot) + "?access_token=" + token;
+}
+
+function getJSON(data) {
+  switch (typeof data) {
+    case "object":
+      // data may be GeoJSON already. Confirm and return
+      return (data !== null && data.type)
+        ? Promise.resolve(data)
+        : Promise.reject(data);
+
+    case "string":
+      // data must be a URL
+      return fetch(data).then(response => {
+        return (response.ok)
+          ? response.json()
+          : Promise.reject(response);
+      });
+
+    default:
+      return Promise.reject(data);
+  }
+}
+
+function getImage(href) {
+  const errMsg = "ERROR in getImage for href " + href;
+  const img = new Image();
+
+  return new Promise( (resolve, reject) => {
+    img.onerror = () => reject(errMsg);
+
+    img.onload = () => (img.complete && img.naturalWidth !== 0)
+        ? resolve(img)
+        : reject(errMsg);
+
+    img.crossOrigin = "anonymous";
+    img.src = href;
+  });
 }
 
 function define(constructor, factory, prototype) {
@@ -440,1475 +1484,41 @@ function hsl2rgb(h, m1, m2) {
       : m1) * 255;
 }
 
-function initUniforms(transform) {
-  const { scalar, skew, translation } = transform;
-
-  const uniforms = {
-    scalar, skew, translation, // Pointers. Values updated outside
-    fillStyle: [0, 0, 0, 1],
-    strokeStyle: [0, 0, 0, 1],
-    globalAlpha: 1.0,
-    lineWidth: 1.0,
-    miterLimit: 10.0,
-    fontScale: 1.0,
-    sdf: null,
-    sdfDim: [256, 256],
-  };
-
-  // Mimic Canvas2D API
-  const setters = {
-    set globalAlpha(val) {
-      uniforms.globalAlpha = val;
-    },
-    set fillStyle(val) {
-      uniforms.fillStyle = convertColor(val);
-    },
-    set strokeStyle(val) {
-      uniforms.strokeStyle = convertColor(val);
-    },
-    set lineWidth(val) {
-      uniforms.lineWidth = val;
-    },
-    set miterLimit(val) {
-      uniforms.miterLimit = val;
-    },
-    set font(val) {
-      uniforms.sdf = val.sampler;
-      uniforms.sdfDim = [val.width, val.height];
-    },
-    set fontSize(val) {
-      uniforms.fontScale = val / 24.0; // TODO: get divisor from sdf-manager?
-    },
-    // TODO: implement dashed lines, patterns
-    setLineDash: () => null,
-    createPattern: () => null,
-  };
-
-  return { values: uniforms, setters };
-
-  function convertColor(cssString) {
-    let c = rgb(cssString);
-    return [c.r / 255, c.g / 255, c.b / 255, c.opacity];
-  }
-}
-
-function createUniformSetters(gl, program) {
-  // Very similar to greggman's module:
-  // webglfundamentals.org/docs/module-webgl-utils.html#.createUniformSetters
-
-  // Track texture bindpoint index in case multiple textures are required
-  var textureUnit = 0;
-
-  const uniformSetters = {};
-  const numUniforms = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
-
-  for (let i = 0; i < numUniforms; i++) {
-    let uniformInfo = gl.getActiveUniform(program, i);
-    if (!uniformInfo) break;
-
-    let { name, type, size } = uniformInfo;
-    let loc = gl.getUniformLocation(program, name);
-
-    // getActiveUniform adds a suffix to the names of arrays
-    let isArray = (name.slice(-3) === "[0]");
-    let key = (isArray)
-      ? name.slice(0, -3)
-      : name;
-
-    uniformSetters[key] = createUniformSetter(loc, type, isArray, size);
-  }
-
-  return uniformSetters;
-
-  // This function must be nested to access the textureUnit index
-  function createUniformSetter(loc, type, isArray, size) {
-    switch (type) {
-      case gl.FLOAT:
-        return (isArray)
-          ? (v) => gl.uniform1fv(loc, v)
-          : (v) => gl.uniform1f(loc, v);
-      case gl.FLOAT_VEC2:
-        return (v) => gl.uniform2fv(loc, v);
-      case gl.FLOAT_VEC3:
-        return (v) => gl.uniform3fv(loc, v);
-      case gl.FLOAT_VEC4:
-        return (v) => gl.uniform4fv(loc, v);
-      case gl.INT:
-        return (isArray)
-          ? (v) => gl.uniform1iv(loc, v)
-          : (v) => gl.uniform1i(loc, v);
-      case gl.INT_VEC2:
-        return (v) => gl.uniform2iv(loc, v);
-      case gl.INT_VEC3:
-        return (v) => gl.uniform3iv(loc, v);
-      case gl.INT_VEC4:
-        return (v) => gl.uniform4iv(loc, v);
-      case gl.BOOL:
-        return (v) => gl.uniform1iv(loc, v);
-      case gl.BOOL_VEC2:
-        return (v) => gl.uniform2iv(loc, v);
-      case gl.BOOL_VEC3:
-        return (v) => gl.uniform3iv(loc, v);
-      case gl.BOOL_VEC4:
-        return (v) => gl.uniform4iv(loc, v);
-      case gl.FLOAT_MAT2:
-        return (v) => gl.uniformMatrix2fv(loc, false, v);
-      case gl.FLOAT_MAT3:
-        return (v) => gl.uniformMatrix3fv(loc, false, v);
-      case gl.FLOAT_MAT4:
-        return (v) => gl.uniformMatrix4fv(loc, false, v);
-      case gl.SAMPLER_2D:
-      case gl.SAMPLER_CUBE:
-        var bindPoint = getBindPointForSamplerType(gl, type);
-        if (isArray) {
-          var units = Array.from(Array(size), () => textureUnit++);
-          return function(textures) {
-            gl.uniform1iv(loc, units);
-            textures.forEach( function(texture, index) {
-              gl.activeTexture(gl.TEXTURE0 + units[index]);
-              gl.bindTexture(bindPoint, texture);
-            });
-          };
-        } else {
-          var unit = textureUnit++;
-          return function(texture) {
-            gl.uniform1i(loc, unit);
-            gl.activeTexture(gl.TEXTURE0 + unit);
-            gl.bindTexture(bindPoint, texture);
-          };
-        }
-     default:  // we should never get here
-        throw("unknown type: 0x" + type.toString(16));
-    }
-  }
-}
-
-function getBindPointForSamplerType(gl, type) {
-  if (type === gl.SAMPLER_2D)   return gl.TEXTURE_2D;
-  if (type === gl.SAMPLER_CUBE) return gl.TEXTURE_CUBE_MAP;
-  return undefined;
-}
-
-function setUniforms(setters, values) {
-  Object.entries(values).forEach(([key, val]) => {
-    var setter = setters[key];
-    if (setter) setter(val);
-  });
-}
-
-function getVao(gl, program, attributeState) {
-  const { attributes, indices } = attributeState;
-
-  const vao = gl.createVertexArray();
-  gl.bindVertexArray(vao);
-
-  Object.entries(attributes).forEach(([name, a]) => {
-    var index = gl.getAttribLocation(program, name);
-    if (index < 0) return;
-
-    gl.enableVertexAttribArray(index);
-    gl.bindBuffer(gl.ARRAY_BUFFER, a.buffer);
-    gl.vertexAttribPointer(
-      index, // index of attribute in program
-      a.numComponents || a.size, // Number of elements to read per vertex
-      a.type || gl.FLOAT, // Type of each element
-      a.normalize || false, // Whether to normalize it
-      a.stride || 0, // Byte spacing between vertices
-      a.offset || 0 // Byte # to start reading from
-    );
-    gl.vertexAttribDivisor(index, a.divisor || 0);
-  });
-
-  if (indices) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indices.buffer);
-
-  gl.bindVertexArray(null);
-  return vao;
-}
-
-function initProgram(gl, vertexSrc, fragmentSrc) {
-  const program = gl.createProgram();
-  gl.attachShader(program, loadShader(gl, gl.VERTEX_SHADER, vertexSrc));
-  gl.attachShader(program, loadShader(gl, gl.FRAGMENT_SHADER, fragmentSrc));
-  gl.linkProgram(program);
-
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    fail("Unable to link the program", gl.getProgramInfoLog(program));
-  }
-
-  const uniformSetters = createUniformSetters(gl, program);
-
-  function constructVao(attributeState) {
-    return getVao(gl, program, attributeState);
-  }
-
-  function setupDraw({ uniforms, vao }) {
-    gl.useProgram(program);
-    setUniforms(uniformSetters, uniforms);
-    gl.bindVertexArray(vao);
-  }
-
-  return { gl, constructVao, setupDraw };
-}
-
-function loadShader(gl, type, source) {
-  const shader = gl.createShader(type);
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    let log = gl.getShaderInfoLog(shader);
-    gl.deleteShader(shader);
-    fail("An error occured compiling the shader", log);
-  }
-
-  return shader;
-}
-
-function fail(msg, log) {
-  throw Error("yawgl.initProgram: " + msg + ":\n" + log);
-}
-
-var textVertSrc = `precision highp float;
-
-attribute vec2 quadPos; // Vertices of the quad instance
-attribute vec2 labelPos, charPos;
-attribute vec4 sdfRect; // x, y, w, h
-
-uniform vec2 scalar, skew, translation;
-uniform float fontScale;
-
-varying vec2 texCoord;
-
-void main() {
-  vec2 dPos = sdfRect.zw * quadPos;
-  texCoord = sdfRect.xy + dPos;
-  vec2 vPos = labelPos + (charPos + dPos) * fontScale;
-
-  vec2 projected = scalar * vPos + skew * vPos.yx + translation;
-  gl_Position = vec4(projected, 0, 1);
-}
-`;
-
-var textFragSrc = `precision highp float;
-
-uniform sampler2D sdf;
-uniform vec2 sdfDim;
-uniform vec4 fillStyle;
-uniform float globalAlpha;
-
-varying vec2 texCoord;
-
-void main() {
-  float sdfVal = texture2D(sdf, texCoord / sdfDim).a;
-  // Find taper width: ~ dScreenPixels / dTexCoord
-  float screenScale = 1.414 / length(fwidth(texCoord));
-  float screenDist = screenScale * (191.0 - 255.0 * sdfVal) / 32.0;
-
-  // TODO: threshold 0.5 looks too pixelated. Why?
-  float alpha = smoothstep(-0.8, 0.8, -screenDist);
-  gl_FragColor = fillStyle * (alpha * globalAlpha);
-}
-`;
-
-var fillVertSrc = `precision highp float;
-attribute vec2 a_position;
-
-uniform vec2 scalar, skew, translation;
-
-void main() {
-  vec2 projected = scalar * a_position + skew * a_position.yx + translation;
-  gl_Position = vec4(projected, 0, 1);
-}
-`;
-
-var fillFragSrc = `precision mediump float;
-
-uniform vec4 fillStyle;
-uniform float globalAlpha;
-
-void main() {
-    gl_FragColor = fillStyle * globalAlpha;
-}
-`;
-
-var strokeVertSrc = `precision highp float;
-uniform float lineWidth, miterLimit;
-uniform vec2 scalar, skew, translation;
-attribute vec2 position;
-attribute vec3 pointA, pointB, pointC, pointD;
-
-varying float yCoord;
-varying vec2 miterCoord1, miterCoord2;
-
-mat3 miterTransform(vec2 xHat, vec2 yHat, vec2 v) {
-  // Find a coordinate basis vector aligned along the bisector
-  bool isCap = length(v) < 0.0001; // TODO: think about units
-  vec2 vHat = (isCap)
-    ? xHat // Treat v = 0 like 180 deg turn
-    : normalize(v);
-  vec2 m0 = (dot(xHat, vHat) < -0.9999)
-    ? yHat // For vHat == -xHat
-    : normalize(xHat + vHat);
-  
-  // Find a perpendicular basis vector, pointing toward xHat
-  float x_m0 = dot(xHat, m0);
-  vec2 m1 = (x_m0 < 0.9999)
-    ? normalize(xHat - vHat)
-    : yHat;
-
-  // Compute miter length
-  float sin2 = 1.0 - x_m0 * x_m0; // Could be zero!
-  float miterLength = (sin2 > 0.0001)
-    ? inversesqrt(sin2)
-    : miterLimit + 1.0;
-  float bevelLength = abs(dot(yHat, m0));
-  float tx = (miterLength > miterLimit)
-    ? 0.5 * lineWidth * bevelLength
-    : 0.5 * lineWidth * miterLength;
-
-  float ty = isCap ? 1.2 * lineWidth : 0.0;
-
-  return mat3(m0.x, m1.x, 0, m0.y, m1.y, 0, tx, ty, 1);
-}
-
-void main() {
-  vec2 xAxis = pointC.xy - pointB.xy;
-  vec2 xBasis = normalize(xAxis);
-  vec2 yBasis = vec2(-xBasis.y, xBasis.x);
-
-  // Get coordinate transforms for the miters
-  mat3 m1 = miterTransform(xBasis, yBasis, pointA.xy - pointB.xy);
-  mat3 m2 = miterTransform(-xBasis, yBasis, pointD.xy - pointC.xy);
-
-  // Find the position of the current instance vertex, in 3 coordinate systems
-  vec2 extend = miterLimit * xBasis * lineWidth * (position.x - 0.5);
-  // Add one pixel on either side of the line for the anti-alias taper
-  yCoord = (lineWidth + 2.0) * position.y;
-  vec2 point = pointB.xy + xAxis * position.x + yBasis * yCoord + extend;
-  miterCoord1 = (m1 * vec3(point - pointB.xy, 1)).xy;
-  miterCoord2 = (m2 * vec3(point - pointC.xy, 1)).xy; 
-
-  // Project the display position to clipspace coordinates
-  vec2 projected = scalar * point + skew * point.yx + translation;
-  gl_Position = vec4(projected, pointB.z + pointC.z, 1);
-}
-`;
-
-var strokeFragSrc = `precision highp float;
-uniform vec4 strokeStyle;
-uniform float lineWidth, globalAlpha;
-
-varying float yCoord;
-varying vec2 miterCoord1, miterCoord2;
-
-void main() {
-  float step0 = fwidth(yCoord) * 0.707;
-  vec2 step1 = fwidth(miterCoord1) * 0.707;
-  vec2 step2 = fwidth(miterCoord2) * 0.707;
-
-  // Antialiasing for edges of lines
-  float outside = -0.5 * lineWidth - step0;
-  float inside = -0.5 * lineWidth + step0;
-  float antialias = smoothstep(outside, inside, -abs(yCoord));
-
-  // Bevels, endcaps: Use smooth taper for antialiasing
-  float taperx = 
-    smoothstep(-step1.x, step1.x, miterCoord1.x) *
-    smoothstep(-step2.x, step2.x, miterCoord2.x);
-
-  // Miters: Use hard step, slightly shifted to avoid overlap at center
-  float tapery = 
-    step(-0.01 * step1.y, miterCoord1.y) *
-    step(0.01 * step2.y, miterCoord2.y);
-
-  vec4 premult = vec4(strokeStyle.rgb * strokeStyle.a, strokeStyle.a);
-  gl_FragColor = premult * globalAlpha * antialias * taperx * tapery;
-}
-`;
-
-var circleVertSrc = `precision highp float;
-
-attribute vec2 quadPos; // Vertices of the quad instance
-attribute vec2 circlePos;
-
-uniform vec2 scalar, skew, translation;
-uniform float lineWidth;
-
-varying vec2 delta;
-
-void main() {
-  float extend = 2.0; // Extra space in the quad for tapering
-  delta = (lineWidth + extend) * quadPos;
-  vec2 vPos = circlePos + delta;
-
-  vec2 projected = scalar * vPos + skew * vPos.yx + translation;
-  gl_Position = vec4(projected, 0, 1);
-}
-`;
-
-var circleFragSrc = `precision mediump float;
-
-uniform highp float lineWidth;
-uniform vec4 strokeStyle;
-uniform float globalAlpha;
-
-varying vec2 delta;
-
-void main() {
-  float r = length(delta);
-  float dr = fwidth(r);
-  float radius = lineWidth / 2.0;
-
-  float taper = 1.0 - smoothstep(radius - dr, radius + dr, r);
-  gl_FragColor = strokeStyle * globalAlpha * taper;
-}
-`;
-
-function initTextBufferLoader(gl, constructVao) {
-  // Create a buffer with the position of the vertices within one instance
-  const instanceGeom = new Float32Array([
-    0.0,  0.0,   1.0,  0.0,   1.0,  1.0,
-    0.0,  0.0,   1.0,  1.0,   0.0,  1.0
-  ]);
-
-  const quadPos = {
-    buffer: gl.createBuffer(),
-    numComponents: 2,
-    type: gl.FLOAT,
-    normalize: false,
-    stride: 0,
-    offset: 0,
-    divisor: 0,
-  };
-  gl.bindBuffer(gl.ARRAY_BUFFER, quadPos.buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, instanceGeom, gl.STATIC_DRAW);
-
-  return function(buffers) {
-    const { origins, deltas, rects } = buffers;
-    const numInstances = origins.length / 2;
-
-    const labelPos = {
-      buffer: gl.createBuffer(),
-      numComponents: 2,
-      type: gl.FLOAT,
-      normalize: false,
-      stride: 0,
-      offset: 0,
-      divisor: 1,
-    };
-    gl.bindBuffer(gl.ARRAY_BUFFER, labelPos.buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, origins, gl.STATIC_DRAW);
-
-    const charPos = {
-      buffer: gl.createBuffer(),
-      numComponents: 2,
-      type: gl.FLOAT,
-      normalize: false,
-      stride: 0,
-      offset: 0,
-      divisor: 1,
-    };
-    gl.bindBuffer(gl.ARRAY_BUFFER, charPos.buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, deltas, gl.STATIC_DRAW);
-
-    const sdfRect = {
-      buffer: gl.createBuffer(),
-      numComponents: 4,
-      type: gl.FLOAT,
-      normalize: false,
-      stride: 0,
-      offset: 0,
-      divisor: 1,
-    };
-    gl.bindBuffer(gl.ARRAY_BUFFER, sdfRect.buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, rects, gl.STATIC_DRAW);
-
-    const attributes = { quadPos, labelPos, charPos, sdfRect };
-    const textVao = constructVao({ attributes });
-
-    return { textVao, numInstances };
-  };
-}
-
-function initFillBufferLoader(gl, constructVao, lineLoader) {
-  return function(buffers) {
-    // buffers: { vertices, indices, lines }
-
-    const vertexPositions = {
-      buffer: gl.createBuffer(),
-      numComponents: 2,
-      type: gl.FLOAT,
-      normalize: false,
-      stride: 0,
-      offset: 0
-    };
-    gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositions.buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, buffers.vertices, gl.STATIC_DRAW);
-
-    const indices = {
-      buffer: gl.createBuffer(),
-      vertexCount: buffers.indices.length,
-      type: gl.UNSIGNED_SHORT,
-      offset: 0
-    };
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indices.buffer);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, buffers.indices, gl.STATIC_DRAW);
-
-    const attributes = { a_position: vertexPositions };
-    const fillVao = constructVao({ attributes, indices });
-    const path = { fillVao, indices };
-
-    const strokePath = lineLoader(buffers);
-
-    return Object.assign(path, strokePath);
-  }
-}
-
-function initLineBufferLoader(gl, constructVao) {
-  // Create a buffer with the position of the vertices within one instance
-  const instanceGeom = new Float32Array([
-    0, -0.5,   1, -0.5,   1,  0.5,
-    0, -0.5,   1,  0.5,   0,  0.5
-  ]);
-
-  const position = {
-    buffer: gl.createBuffer(),
-    numComponents: 2,
-    type: gl.FLOAT,
-    normalize: false,
-    stride: 0,
-    offset: 0,
-    divisor: 0,
-  };
-  gl.bindBuffer(gl.ARRAY_BUFFER, position.buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, instanceGeom, gl.STATIC_DRAW);
-
-  return function(buffers) {
-    const { lines } = buffers;
-    const numComponents = 3;
-    const numInstances = lines.length / numComponents - 3;
-
-    // Create buffer containing the vertex positions
-    const linesBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, linesBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, lines, gl.STATIC_DRAW);
-
-    // Create interleaved attributes pointing to different offsets in buffer
-    const attributes = {
-      position,
-      pointA: setupPoint(0),
-      pointB: setupPoint(1),
-      pointC: setupPoint(2),
-      pointD: setupPoint(3),
-    };
-
-    function setupPoint(offset) {
-      return {
-        buffer: linesBuffer,
-        numComponents: numComponents,
-        type: gl.FLOAT,
-        normalize: false,
-        stride: Float32Array.BYTES_PER_ELEMENT * numComponents,
-        offset: Float32Array.BYTES_PER_ELEMENT * numComponents * offset,
-        divisor: 1
-      };
-    }
-
-    const strokeVao = constructVao({ attributes });
-
-    return { strokeVao, numInstances };
-  };
-}
-
-function initCircleBufferLoader(gl, constructVao) {
-  // Create a buffer with the position of the vertices within one instance
-  const instanceGeom = new Float32Array([
-    -0.5, -0.5,   0.5, -0.5,   0.5,  0.5,
-    -0.5, -0.5,   0.5,  0.5,  -0.5,  0.5,
-  ]);
-
-  const quadPos = {
-    buffer: gl.createBuffer(),
-    numComponents: 2,
-    type: gl.FLOAT,
-    normalize: false,
-    stride: 0,
-    offset: 0,
-    divisor: 0,
-  };
-  gl.bindBuffer(gl.ARRAY_BUFFER, quadPos.buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, instanceGeom, gl.STATIC_DRAW);
-
-  return function(buffers) {
-    const { points } = buffers;
-    const numInstances = points.length / 2;
-
-    const circlePos = {
-      buffer: gl.createBuffer(),
-      numComponents: 2,
-      type: gl.FLOAT,
-      normalize: false,
-      stride: 0,
-      offset: 0,
-      divisor: 1,
-    };
-    gl.bindBuffer(gl.ARRAY_BUFFER, circlePos.buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, points, gl.STATIC_DRAW);
-
-    const attributes = { quadPos, circlePos };
-    const circleVao = constructVao({ attributes });
-
-    return { circleVao, numInstances };
-  };
-}
-
-function initBufferLoader(gl, programs) {
-  // TODO: clean this up. Can we import differently?
-  const lineLoader = initLineBufferLoader(gl, programs.line.constructVao);
-  const loaders = {
-    line: lineLoader,
-    fill: initFillBufferLoader(gl, programs.fill.constructVao, lineLoader),
-    circle: initCircleBufferLoader(gl, programs.circle.constructVao),
-    text: initTextBufferLoader(gl, programs.text.constructVao),
-  };
-
-  return function(buffers) {
-    if (buffers.vertices) {
-      return loaders.fill(buffers);
-    } else if (buffers.lines) {
-      return loaders.line(buffers);
-    } else if (buffers.points) {
-      return loaders.circle(buffers);
-    } else if (buffers.origins) {
-      return loaders.text(buffers);
-    } else {
-      throw("loadBuffers: unknown buffers structure!");
-    }
-  };
-}
-
-function initAtlasLoader(gl) {
-  return function(atlas) {
-    const { width, height, data } = atlas;
-
-    const target = gl.TEXTURE_2D;
-    const texture = gl.createTexture();
-    gl.bindTexture(target, texture);
-
-    const level = 0;
-    const format = gl.ALPHA;
-    const border = 0;
-    const type = gl.UNSIGNED_BYTE;
-
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-
-    gl.texImage2D(target, level, format, 
-      width, height, border, format, type, data);
-
-    gl.texParameteri(target, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(target, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-
-    return { width, height, sampler: texture };
-  };
-}
-
-function initPrograms(gl, uniforms) {
-  const programs = {
-    text: initProgram(gl, textVertSrc, textFragSrc),
-    fill: initProgram(gl, fillVertSrc, fillFragSrc),
-    line: initProgram(gl, strokeVertSrc, strokeFragSrc),
-    circle: initProgram(gl, circleVertSrc, circleFragSrc),
-  };
-
-  function fillText(buffers) {
-    let { textVao, numInstances } = buffers;
-    programs.text.setupDraw({ uniforms, vao: textVao });
-    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, numInstances);
-    gl.bindVertexArray(null);
-  }
-
-  function fill(buffers) {
-    let { fillVao, indices: { vertexCount, type, offset } } = buffers;
-    programs.fill.setupDraw({ uniforms, vao: fillVao });
-    gl.drawElements(gl.TRIANGLES, vertexCount, type, offset);
-    gl.bindVertexArray(null);
-  }
-
-  function stroke(buffers) {
-    let { strokeVao, circleVao, numInstances } = buffers;
-    if (strokeVao) {
-      programs.line.setupDraw({ uniforms, vao: strokeVao });
-    } else if (circleVao) {
-      programs.circle.setupDraw({ uniforms, vao: circleVao });
-    } else {
-      return;
-    }
-    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, numInstances);
-    gl.bindVertexArray(null);
-  }
-
-  return {
-    fillText,
-    fill,
-    stroke,
-
-    loadBuffers: initBufferLoader(gl, programs),
-    loadAtlas: initAtlasLoader(gl),
-  };
-}
-
-function initGLpaint(gl, framebuffer, framebufferSize) {
-  // Input is an extended WebGL context, as created by yawgl.getExtendedContext
-  gl.disable(gl.DEPTH_TEST);
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-
-  const transform = initTransform(framebufferSize);
-  const uniforms = initUniforms(transform);
-  const programs = initPrograms(gl, uniforms.values);
-
-  const api = {
-    gl,
-    canvas: framebufferSize,
-    bindFramebufferAndSetViewport,
-
-    save: () => null,
-    restore,
-    clear,
-    clearRect: () => clear(), // TODO: clipRect() before clear()?
-    clipRect,
-    fillRect,
-  };
-
-  Object.assign(api, transform.methods, programs);
-  Object.defineProperties(api,
-    Object.getOwnPropertyDescriptors(uniforms.setters)
-  );
-
-  return api;
-
-  function clear(color = [0.0, 0.0, 0.0, 0.0]) {
-    gl.disable(gl.SCISSOR_TEST);
-    gl.clearColor(...color);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-  }
-
-  function clipRect(x, y, width, height) {
-    gl.enable(gl.SCISSOR_TEST);
-    let yflip = framebufferSize.height - y - height;
-    let roundedArgs = [x, yflip, width, height].map(Math.round);
-    gl.scissor(...roundedArgs);
-  }
-
-  function restore() {
-    gl.disable(gl.SCISSOR_TEST);
-    transform.methods.setTransform(1, 0, 0, 1, 0, 0);
-  }
-
-  function fillRect(x, y, width, height) {
-    clipRect(x, y, width, height);
-    let opacity = uniforms.values.globalAlpha;
-    let color = uniforms.values.fillStyle.map(c => c * opacity);
-    clear(color);
-  }
-
-  function bindFramebufferAndSetViewport() {
-    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-    let { width, height } = framebufferSize;
-    gl.viewport(0, 0, width, height);
-  }
-}
-
-function initEventHandler() {
-  // Stores events and listeners. Listeners will be executed even if
-  // the event occurred before the listener was added
-
-  const events = {};    // { type1: data1, type2: data2, ... }
-  const listeners = {}; // { type1: { id1: func1, id2: func2, ...}, type2: ... }
-  var globalID = 0;
-
-  function emitEvent(type, data = "1") {
-    events[type] = data;
-
-    let audience = listeners[type];
-    if (!audience) return;
-
-    Object.values(audience).forEach(listener => listener(data));
-  }
-
-  function addListener(type, listener) {
-    if (!listeners[type]) listeners[type] = {};
-
-    let id = ++globalID;
-    listeners[type][id] = listener;
-    
-    if (events[type]) listener(events[type]);
-    return id;
-  }
-
-  function removeListener(type, id) {
-    let audience = listeners[type];
-    if (audience) delete audience[id];
-  }
-
-  return {
-    emitEvent,
-    addListener,
-    removeListener,
-  };
-}
-
-// Maximum latitude for Web Mercator: 85.0113 degrees. Beware rounding!
-const maxMercLat = 2.0 * Math.atan( Math.exp(Math.PI) ) - Math.PI / 2.0;
-const clipLat = (lat) => Math.min(Math.max(-maxMercLat, lat), maxMercLat);
-
-function forward([lon, lat]) {
-  // Convert input longitude in radians to a Web Mercator x-coordinate
-  // where x = 0 at lon = -PI, x = 1 at lon = +PI
-  let x = 0.5 + 0.5 * lon / Math.PI;
-
-  // Convert input latitude in radians to a Web Mercator y-coordinate
-  // where y = 0 at lat = maxMercLat, y = 1 at lat = -maxMercLat
-  let y = 0.5 - 0.5 / Math.PI *
-    Math.log( Math.tan(Math.PI / 4.0 + clipLat(lat) / 2.0) );
-
-  // Clip y to the range [0, 1] (it does not wrap around)
-  y = Math.min(Math.max(0.0, y), 1.0);
-
-  return [x, y];
-}
-
-function inverse([x, y]) {
-  let lon = 2.0 * (x - 0.5) * Math.PI;
-  let lat = 2.0 * Math.atan(Math.exp(Math.PI * (1.0 - 2.0 * y))) - Math.PI / 2;
-
-  return [lon, lat];
-}
-
-function scale([lon, lat]) {
-  // Return value scales a (differential) distance along the plane tangent to
-  // the sphere at [lon, lat] to a distance in map coordinates.
-  // NOTE: ASSUMES a sphere of radius 1! Input distances should be
-  //  pre-normalized by the appropriate radius
-  return 1 / (2 * Math.PI * Math.cos( clipLat(lat) ));
-}
-
-var projection = /*#__PURE__*/Object.freeze({
-  __proto__: null,
-  forward: forward,
-  inverse: inverse,
-  scale: scale
-});
-
-function initCoords({ size, center, zoom, clampY = true }) {
-  const degrees = 180 / Math.PI;
-  const minTileSize = 256;
-  const logTileSize = Math.log2(minTileSize);
-
-  const transform = { k: 1, x: 0, y: 0 };
-  const camPos = new Float64Array([0.5, 0.5]);
-  const scale = new Float64Array([1.0, 1.0]);
-
-  setCenterZoom(center, zoom);
-
-  return {
-    setTransform,
-    setCenterZoom,
-
-    getViewport,
-    getTransform: () => Object.assign({}, transform),
-    getZoom: () => Math.max(0, Math.log2(transform.k) - 9),
-    getCamPos: () => camPos.slice(),
-    getScale: () => scale.slice(),
-
-    localToGlobal,
-  };
-
-  function getViewport(pixRatio = 1) {
-    return [size.width / pixRatio, size.height / pixRatio];
-  }
-
-  function setTransform(rawTransform) {
-    // Input transforms map coordinates [x, y] into viewport coordinates
-    // Units are in pixels
-    const { k: kRaw, x: xRaw, y: yRaw } = rawTransform;
-
-    // Round kRaw to ensure tile pixels align with screen pixels
-    const z = Math.log2(kRaw) - logTileSize;
-    const z0 = Math.floor(z);
-    const tileScale = Math.round(2 ** (z - z0) * minTileSize);
-    const kNew = clampY
-      ? Math.max(2 ** z0 * tileScale, size.height)
-      : 2 ** z0 * tileScale;
-
-    // Adjust translation for the change in scale, and snap to pixel grid
-    const kScale = kNew / kRaw;
-    // Keep the same map pixel at the center of the viewport
-    const sx = kScale * xRaw + (1 - kScale) * size.width / 2;
-    const sy = kScale * yRaw + (1 - kScale) * size.height / 2;
-    // Limit Y so the map doesn't cross a pole
-    const yLim = clampY
-      ? Math.min(Math.max(-kNew / 2 + size.height, sy), kNew / 2)
-      : sy;
-    const [xNew, yNew] = [sx, yLim].map(Math.round);
-
-    // Make sure camera is still pointing at the original location: shift from 
-    // the center [0.5, 0.5] by the change in the translation due to rounding
-    camPos[0] = 0.5 + (xNew - sx) / size.width;
-    camPos[1] = 0.5 + (yNew - sy) / size.height;
-
-    // Store the scale of the current map relative to the entire world
-    scale[0] = kNew / size.width;
-    scale[1] = kNew / size.height;
-
-    // Return a flag indicating whether the transform changed
-    const { k: kOld, x: xOld, y: yOld } = transform;
-    if (kNew == kOld && xNew == xOld && yNew == yOld) return false;
-    Object.assign(transform, { k: kNew, x: xNew, y: yNew });
-    return true;
-  }
-
-  function setCenterZoom(c, z, units = 'degrees') {
-    let k = 512 * 2 ** z;
-    let lonLat = (units === 'degrees')
-      ? c.map(x => x / degrees)
-      : c;
-    let [xr, yr] = forward(lonLat);
-    
-    let x = (0.5 - xr) * k + size.width / 2;
-    let y = (0.5 - yr) * k + size.height / 2;
-
-    return setTransform({ k, x, y });
-  }
-
-  function localToGlobal([x, y]) {
-    // Convert local map pixels to global XY
-    let { x: tx, y: ty, k } = transform;
-    // tx, ty is the shift of the map center (in pixels) 
-    //   relative to the viewport origin (top left corner)
-    return [(x - tx) / k + 0.5, (y - ty) / k + 0.5];
-  }
-}
-
-function setParams(userParams) {
-  const gl = userParams.gl;
-  if (!(gl instanceof WebGLRenderingContext)) {
-    fail$1("no valid WebGL context");
-  }
-
-  const { 
-    framebuffer = null,
-    size = gl.canvas,
-    center = [0.0, 0.0],
-    zoom = 4,
-    style,
-    mapboxToken,
-    clampY = true,
-  } = userParams;
-
-  if (!(framebuffer instanceof WebGLFramebuffer) && framebuffer !== null) {
-    fail$1("no valid framebuffer");
-  }
-
-  if (!size || !allPosInts(size.width, size.height)) {
-    fail$1("invalid size object");
-  }
-
-  if (!Array.isArray(center) || !all0to1(...center.slice(2))) {
-    fail$1("invalid center coordinates");
-  }
-
-  if (!Number.isFinite(zoom)) {
-    fail$1("invalid zoom value");
-  }
-
-  return {
-    gl, framebuffer, size,
-    coords: initCoords({ size, center, zoom, clampY }),
-    style, mapboxToken,
-    context: initGLpaint(gl, framebuffer, size),
-    eventHandler: initEventHandler(),
-  };
-}
-
-function fail$1(message) {
-  throw Error("vector-map parameter check: " + message + "!");
-}
-
-function allPosInts(...vals) {
-  return vals.every(v => Number.isInteger(v) && v > 0);
-}
-
-function all0to1(...vals) {
-  return vals.every(v => Number.isFinite(v) && v >= 0 && v <= 1);
-}
-
-function expandStyleURL(url, token) {
-  var prefix = /^mapbox:\/\/styles\//;
-  if ( !url.match(prefix) ) return url;
-  var apiRoot = "https://api.mapbox.com/styles/v1/";
-  return url.replace(prefix, apiRoot) + "?access_token=" + token;
-}
-
-function expandSpriteURLs(url, token) {
-  // Returns an array containing urls to .png and .json files
-  var prefix = /^mapbox:\/\/sprites\//;
-  if ( !url.match(prefix) ) return {
-    image: url + ".png", 
-    meta: url + ".json",
-  };
-
-  // We have a Mapbox custom url. Expand to an absolute URL, as per the spec
-  var apiRoot = "https://api.mapbox.com/styles/v1/";
-  url = url.replace(prefix, apiRoot) + "/sprite";
-  var tokenString = "?access_token=" + token;
-  return {
-    image: url + ".png" + tokenString, 
-    meta: url + ".json" + tokenString,
-  };
-}
-
-function expandTileURL(url, token) {
-  var prefix = /^mapbox:\/\//;
-  if ( !url.match(prefix) ) return url;
-  var apiRoot = "https://api.mapbox.com/v4/";
-  return url.replace(prefix, apiRoot) + ".json?secure&access_token=" + token;
-}
-
-function expandGlyphURL(url, token) {
-  var prefix = /^mapbox:\/\/fonts\//;
-  if ( !url.match(prefix) ) return url;
-  var apiRoot = "https://api.mapbox.com/fonts/v1/";
-  return url.replace(prefix, apiRoot) + "?access_token=" + token;
-}
-
-function getJSON(data) {
-  switch (typeof data) {
-    case "object":
-      // data may be GeoJSON already. Confirm and return
-      return (data !== null && data.type)
-        ? Promise.resolve(data)
-        : Promise.reject(data);
-
-    case "string":
-      // data must be a URL
-      return fetch(data).then(response => {
-        return (response.ok)
-          ? response.json()
-          : Promise.reject(response);
-      });
-
-    default:
-      return Promise.reject(data);
-  }
-}
-
-function getImage(href) {
-  const errMsg = "ERROR in getImage for href " + href;
-  const img = new Image();
-
-  return new Promise( (resolve, reject) => {
-    img.onerror = () => reject(errMsg);
-
-    img.onload = () => (img.complete && img.naturalWidth !== 0)
-        ? resolve(img)
-        : reject(errMsg);
-
-    img.crossOrigin = "anonymous";
-    img.src = href;
-  });
-}
-
-function define$1(constructor, factory, prototype) {
-  constructor.prototype = factory.prototype = prototype;
-  prototype.constructor = constructor;
-}
-
-function extend$1(parent, definition) {
-  var prototype = Object.create(parent.prototype);
-  for (var key in definition) prototype[key] = definition[key];
-  return prototype;
-}
-
-function Color$1() {}
-
-var darker$1 = 0.7;
-var brighter$1 = 1 / darker$1;
-
-var reI$1 = "\\s*([+-]?\\d+)\\s*",
-    reN$1 = "\\s*([+-]?\\d*\\.?\\d+(?:[eE][+-]?\\d+)?)\\s*",
-    reP$1 = "\\s*([+-]?\\d*\\.?\\d+(?:[eE][+-]?\\d+)?)%\\s*",
-    reHex$1 = /^#([0-9a-f]{3,8})$/,
-    reRgbInteger$1 = new RegExp("^rgb\\(" + [reI$1, reI$1, reI$1] + "\\)$"),
-    reRgbPercent$1 = new RegExp("^rgb\\(" + [reP$1, reP$1, reP$1] + "\\)$"),
-    reRgbaInteger$1 = new RegExp("^rgba\\(" + [reI$1, reI$1, reI$1, reN$1] + "\\)$"),
-    reRgbaPercent$1 = new RegExp("^rgba\\(" + [reP$1, reP$1, reP$1, reN$1] + "\\)$"),
-    reHslPercent$1 = new RegExp("^hsl\\(" + [reN$1, reP$1, reP$1] + "\\)$"),
-    reHslaPercent$1 = new RegExp("^hsla\\(" + [reN$1, reP$1, reP$1, reN$1] + "\\)$");
-
-var named$1 = {
-  aliceblue: 0xf0f8ff,
-  antiquewhite: 0xfaebd7,
-  aqua: 0x00ffff,
-  aquamarine: 0x7fffd4,
-  azure: 0xf0ffff,
-  beige: 0xf5f5dc,
-  bisque: 0xffe4c4,
-  black: 0x000000,
-  blanchedalmond: 0xffebcd,
-  blue: 0x0000ff,
-  blueviolet: 0x8a2be2,
-  brown: 0xa52a2a,
-  burlywood: 0xdeb887,
-  cadetblue: 0x5f9ea0,
-  chartreuse: 0x7fff00,
-  chocolate: 0xd2691e,
-  coral: 0xff7f50,
-  cornflowerblue: 0x6495ed,
-  cornsilk: 0xfff8dc,
-  crimson: 0xdc143c,
-  cyan: 0x00ffff,
-  darkblue: 0x00008b,
-  darkcyan: 0x008b8b,
-  darkgoldenrod: 0xb8860b,
-  darkgray: 0xa9a9a9,
-  darkgreen: 0x006400,
-  darkgrey: 0xa9a9a9,
-  darkkhaki: 0xbdb76b,
-  darkmagenta: 0x8b008b,
-  darkolivegreen: 0x556b2f,
-  darkorange: 0xff8c00,
-  darkorchid: 0x9932cc,
-  darkred: 0x8b0000,
-  darksalmon: 0xe9967a,
-  darkseagreen: 0x8fbc8f,
-  darkslateblue: 0x483d8b,
-  darkslategray: 0x2f4f4f,
-  darkslategrey: 0x2f4f4f,
-  darkturquoise: 0x00ced1,
-  darkviolet: 0x9400d3,
-  deeppink: 0xff1493,
-  deepskyblue: 0x00bfff,
-  dimgray: 0x696969,
-  dimgrey: 0x696969,
-  dodgerblue: 0x1e90ff,
-  firebrick: 0xb22222,
-  floralwhite: 0xfffaf0,
-  forestgreen: 0x228b22,
-  fuchsia: 0xff00ff,
-  gainsboro: 0xdcdcdc,
-  ghostwhite: 0xf8f8ff,
-  gold: 0xffd700,
-  goldenrod: 0xdaa520,
-  gray: 0x808080,
-  green: 0x008000,
-  greenyellow: 0xadff2f,
-  grey: 0x808080,
-  honeydew: 0xf0fff0,
-  hotpink: 0xff69b4,
-  indianred: 0xcd5c5c,
-  indigo: 0x4b0082,
-  ivory: 0xfffff0,
-  khaki: 0xf0e68c,
-  lavender: 0xe6e6fa,
-  lavenderblush: 0xfff0f5,
-  lawngreen: 0x7cfc00,
-  lemonchiffon: 0xfffacd,
-  lightblue: 0xadd8e6,
-  lightcoral: 0xf08080,
-  lightcyan: 0xe0ffff,
-  lightgoldenrodyellow: 0xfafad2,
-  lightgray: 0xd3d3d3,
-  lightgreen: 0x90ee90,
-  lightgrey: 0xd3d3d3,
-  lightpink: 0xffb6c1,
-  lightsalmon: 0xffa07a,
-  lightseagreen: 0x20b2aa,
-  lightskyblue: 0x87cefa,
-  lightslategray: 0x778899,
-  lightslategrey: 0x778899,
-  lightsteelblue: 0xb0c4de,
-  lightyellow: 0xffffe0,
-  lime: 0x00ff00,
-  limegreen: 0x32cd32,
-  linen: 0xfaf0e6,
-  magenta: 0xff00ff,
-  maroon: 0x800000,
-  mediumaquamarine: 0x66cdaa,
-  mediumblue: 0x0000cd,
-  mediumorchid: 0xba55d3,
-  mediumpurple: 0x9370db,
-  mediumseagreen: 0x3cb371,
-  mediumslateblue: 0x7b68ee,
-  mediumspringgreen: 0x00fa9a,
-  mediumturquoise: 0x48d1cc,
-  mediumvioletred: 0xc71585,
-  midnightblue: 0x191970,
-  mintcream: 0xf5fffa,
-  mistyrose: 0xffe4e1,
-  moccasin: 0xffe4b5,
-  navajowhite: 0xffdead,
-  navy: 0x000080,
-  oldlace: 0xfdf5e6,
-  olive: 0x808000,
-  olivedrab: 0x6b8e23,
-  orange: 0xffa500,
-  orangered: 0xff4500,
-  orchid: 0xda70d6,
-  palegoldenrod: 0xeee8aa,
-  palegreen: 0x98fb98,
-  paleturquoise: 0xafeeee,
-  palevioletred: 0xdb7093,
-  papayawhip: 0xffefd5,
-  peachpuff: 0xffdab9,
-  peru: 0xcd853f,
-  pink: 0xffc0cb,
-  plum: 0xdda0dd,
-  powderblue: 0xb0e0e6,
-  purple: 0x800080,
-  rebeccapurple: 0x663399,
-  red: 0xff0000,
-  rosybrown: 0xbc8f8f,
-  royalblue: 0x4169e1,
-  saddlebrown: 0x8b4513,
-  salmon: 0xfa8072,
-  sandybrown: 0xf4a460,
-  seagreen: 0x2e8b57,
-  seashell: 0xfff5ee,
-  sienna: 0xa0522d,
-  silver: 0xc0c0c0,
-  skyblue: 0x87ceeb,
-  slateblue: 0x6a5acd,
-  slategray: 0x708090,
-  slategrey: 0x708090,
-  snow: 0xfffafa,
-  springgreen: 0x00ff7f,
-  steelblue: 0x4682b4,
-  tan: 0xd2b48c,
-  teal: 0x008080,
-  thistle: 0xd8bfd8,
-  tomato: 0xff6347,
-  turquoise: 0x40e0d0,
-  violet: 0xee82ee,
-  wheat: 0xf5deb3,
-  white: 0xffffff,
-  whitesmoke: 0xf5f5f5,
-  yellow: 0xffff00,
-  yellowgreen: 0x9acd32
-};
-
-define$1(Color$1, color$1, {
-  copy: function(channels) {
-    return Object.assign(new this.constructor, this, channels);
-  },
-  displayable: function() {
-    return this.rgb().displayable();
-  },
-  hex: color_formatHex$1, // Deprecated! Use color.formatHex.
-  formatHex: color_formatHex$1,
-  formatHsl: color_formatHsl$1,
-  formatRgb: color_formatRgb$1,
-  toString: color_formatRgb$1
-});
-
-function color_formatHex$1() {
-  return this.rgb().formatHex();
-}
-
-function color_formatHsl$1() {
-  return hslConvert$1(this).formatHsl();
-}
-
-function color_formatRgb$1() {
-  return this.rgb().formatRgb();
-}
-
-function color$1(format) {
-  var m, l;
-  format = (format + "").trim().toLowerCase();
-  return (m = reHex$1.exec(format)) ? (l = m[1].length, m = parseInt(m[1], 16), l === 6 ? rgbn$1(m) // #ff0000
-      : l === 3 ? new Rgb$1((m >> 8 & 0xf) | (m >> 4 & 0xf0), (m >> 4 & 0xf) | (m & 0xf0), ((m & 0xf) << 4) | (m & 0xf), 1) // #f00
-      : l === 8 ? rgba$1(m >> 24 & 0xff, m >> 16 & 0xff, m >> 8 & 0xff, (m & 0xff) / 0xff) // #ff000000
-      : l === 4 ? rgba$1((m >> 12 & 0xf) | (m >> 8 & 0xf0), (m >> 8 & 0xf) | (m >> 4 & 0xf0), (m >> 4 & 0xf) | (m & 0xf0), (((m & 0xf) << 4) | (m & 0xf)) / 0xff) // #f000
-      : null) // invalid hex
-      : (m = reRgbInteger$1.exec(format)) ? new Rgb$1(m[1], m[2], m[3], 1) // rgb(255, 0, 0)
-      : (m = reRgbPercent$1.exec(format)) ? new Rgb$1(m[1] * 255 / 100, m[2] * 255 / 100, m[3] * 255 / 100, 1) // rgb(100%, 0%, 0%)
-      : (m = reRgbaInteger$1.exec(format)) ? rgba$1(m[1], m[2], m[3], m[4]) // rgba(255, 0, 0, 1)
-      : (m = reRgbaPercent$1.exec(format)) ? rgba$1(m[1] * 255 / 100, m[2] * 255 / 100, m[3] * 255 / 100, m[4]) // rgb(100%, 0%, 0%, 1)
-      : (m = reHslPercent$1.exec(format)) ? hsla$1(m[1], m[2] / 100, m[3] / 100, 1) // hsl(120, 50%, 50%)
-      : (m = reHslaPercent$1.exec(format)) ? hsla$1(m[1], m[2] / 100, m[3] / 100, m[4]) // hsla(120, 50%, 50%, 1)
-      : named$1.hasOwnProperty(format) ? rgbn$1(named$1[format]) // eslint-disable-line no-prototype-builtins
-      : format === "transparent" ? new Rgb$1(NaN, NaN, NaN, 0)
-      : null;
-}
-
-function rgbn$1(n) {
-  return new Rgb$1(n >> 16 & 0xff, n >> 8 & 0xff, n & 0xff, 1);
-}
-
-function rgba$1(r, g, b, a) {
-  if (a <= 0) r = g = b = NaN;
-  return new Rgb$1(r, g, b, a);
-}
-
-function rgbConvert$1(o) {
-  if (!(o instanceof Color$1)) o = color$1(o);
-  if (!o) return new Rgb$1;
-  o = o.rgb();
-  return new Rgb$1(o.r, o.g, o.b, o.opacity);
-}
-
-function rgb$1(r, g, b, opacity) {
-  return arguments.length === 1 ? rgbConvert$1(r) : new Rgb$1(r, g, b, opacity == null ? 1 : opacity);
-}
-
-function Rgb$1(r, g, b, opacity) {
-  this.r = +r;
-  this.g = +g;
-  this.b = +b;
-  this.opacity = +opacity;
-}
-
-define$1(Rgb$1, rgb$1, extend$1(Color$1, {
-  brighter: function(k) {
-    k = k == null ? brighter$1 : Math.pow(brighter$1, k);
-    return new Rgb$1(this.r * k, this.g * k, this.b * k, this.opacity);
-  },
-  darker: function(k) {
-    k = k == null ? darker$1 : Math.pow(darker$1, k);
-    return new Rgb$1(this.r * k, this.g * k, this.b * k, this.opacity);
-  },
-  rgb: function() {
-    return this;
-  },
-  displayable: function() {
-    return (-0.5 <= this.r && this.r < 255.5)
-        && (-0.5 <= this.g && this.g < 255.5)
-        && (-0.5 <= this.b && this.b < 255.5)
-        && (0 <= this.opacity && this.opacity <= 1);
-  },
-  hex: rgb_formatHex$1, // Deprecated! Use color.formatHex.
-  formatHex: rgb_formatHex$1,
-  formatRgb: rgb_formatRgb$1,
-  toString: rgb_formatRgb$1
-}));
-
-function rgb_formatHex$1() {
-  return "#" + hex$1(this.r) + hex$1(this.g) + hex$1(this.b);
-}
-
-function rgb_formatRgb$1() {
-  var a = this.opacity; a = isNaN(a) ? 1 : Math.max(0, Math.min(1, a));
-  return (a === 1 ? "rgb(" : "rgba(")
-      + Math.max(0, Math.min(255, Math.round(this.r) || 0)) + ", "
-      + Math.max(0, Math.min(255, Math.round(this.g) || 0)) + ", "
-      + Math.max(0, Math.min(255, Math.round(this.b) || 0))
-      + (a === 1 ? ")" : ", " + a + ")");
-}
-
-function hex$1(value) {
-  value = Math.max(0, Math.min(255, Math.round(value) || 0));
-  return (value < 16 ? "0" : "") + value.toString(16);
-}
-
-function hsla$1(h, s, l, a) {
-  if (a <= 0) h = s = l = NaN;
-  else if (l <= 0 || l >= 1) h = s = NaN;
-  else if (s <= 0) h = NaN;
-  return new Hsl$1(h, s, l, a);
-}
-
-function hslConvert$1(o) {
-  if (o instanceof Hsl$1) return new Hsl$1(o.h, o.s, o.l, o.opacity);
-  if (!(o instanceof Color$1)) o = color$1(o);
-  if (!o) return new Hsl$1;
-  if (o instanceof Hsl$1) return o;
-  o = o.rgb();
-  var r = o.r / 255,
-      g = o.g / 255,
-      b = o.b / 255,
-      min = Math.min(r, g, b),
-      max = Math.max(r, g, b),
-      h = NaN,
-      s = max - min,
-      l = (max + min) / 2;
-  if (s) {
-    if (r === max) h = (g - b) / s + (g < b) * 6;
-    else if (g === max) h = (b - r) / s + 2;
-    else h = (r - g) / s + 4;
-    s /= l < 0.5 ? max + min : 2 - max - min;
-    h *= 60;
-  } else {
-    s = l > 0 && l < 1 ? 0 : h;
-  }
-  return new Hsl$1(h, s, l, o.opacity);
-}
-
-function hsl$1(h, s, l, opacity) {
-  return arguments.length === 1 ? hslConvert$1(h) : new Hsl$1(h, s, l, opacity == null ? 1 : opacity);
-}
-
-function Hsl$1(h, s, l, opacity) {
-  this.h = +h;
-  this.s = +s;
-  this.l = +l;
-  this.opacity = +opacity;
-}
-
-define$1(Hsl$1, hsl$1, extend$1(Color$1, {
-  brighter: function(k) {
-    k = k == null ? brighter$1 : Math.pow(brighter$1, k);
-    return new Hsl$1(this.h, this.s, this.l * k, this.opacity);
-  },
-  darker: function(k) {
-    k = k == null ? darker$1 : Math.pow(darker$1, k);
-    return new Hsl$1(this.h, this.s, this.l * k, this.opacity);
-  },
-  rgb: function() {
-    var h = this.h % 360 + (this.h < 0) * 360,
-        s = isNaN(h) || isNaN(this.s) ? 0 : this.s,
-        l = this.l,
-        m2 = l + (l < 0.5 ? l : 1 - l) * s,
-        m1 = 2 * l - m2;
-    return new Rgb$1(
-      hsl2rgb$1(h >= 240 ? h - 240 : h + 120, m1, m2),
-      hsl2rgb$1(h, m1, m2),
-      hsl2rgb$1(h < 120 ? h + 240 : h - 120, m1, m2),
-      this.opacity
-    );
-  },
-  displayable: function() {
-    return (0 <= this.s && this.s <= 1 || isNaN(this.s))
-        && (0 <= this.l && this.l <= 1)
-        && (0 <= this.opacity && this.opacity <= 1);
-  },
-  formatHsl: function() {
-    var a = this.opacity; a = isNaN(a) ? 1 : Math.max(0, Math.min(1, a));
-    return (a === 1 ? "hsl(" : "hsla(")
-        + (this.h || 0) + ", "
-        + (this.s || 0) * 100 + "%, "
-        + (this.l || 0) * 100 + "%"
-        + (a === 1 ? ")" : ", " + a + ")");
-  }
-}));
-
-/* From FvD 13.37, CSS Color Module Level 3 */
-function hsl2rgb$1(h, m1, m2) {
-  return (h < 60 ? m1 + (m2 - m1) * h / 60
-      : h < 180 ? m2
-      : h < 240 ? m1 + (m2 - m1) * (240 - h) / 60
-      : m1) * 255;
-}
-
-function buildInterpFunc(base, sampleVal) {
-  // Return a function to interpolate the value of y(x), given endpoints
-  // p0 = (x0, y0) and p2 = (x1, y1)
+function buildInterpolator(stops, base = 1) {
+  if (!stops || stops.length < 2 || stops[0].length !== 2) return;
+
+  // Confirm stops are all the same type, and convert colors to arrays
+  const type = getType(stops[0][1]);
+  if (!stops.every(s => getType(s[1]) === type)) return;
+  stops = stops.map(([x, y]) => [x, convertIfColor(y)]);
+
+  const izm = stops.length - 1;
 
   const scale = getScale(base);
-  const interpolate = getInterpolator(sampleVal);
+  const interpolate = getInterpolator(type);
 
-  return (p0, x, p1) => interpolate( p0[1], scale(p0[0], x, p1[0]), p1[1] );
+  return function(x) {
+    let iz = stops.findIndex(stop => stop[0] > x);
+
+    if (iz === 0) return stops[0][1]; // x is below first stop
+    if (iz < 0) return stops[izm][1]; // x is above last stop
+
+    let [x0, y0] = stops[iz - 1];
+    let [x1, y1] = stops[iz];
+
+    return interpolate(y0, scale(x0, x, x1), y1);
+  }
+}
+
+function getType(v) {
+  return color(v) ? "color" : typeof v;
+}
+
+function convertIfColor(val) {
+  // Convert CSS color strings to clamped RGBA arrays for WebGL
+  if (!color(val)) return val;
+  let c = rgb(val);
+  return [c.r / 255, c.g / 255, c.b / 255, c.opacity];
 }
 
 function getScale(base) {
@@ -1926,101 +1536,69 @@ function getScale(base) {
     : scale(a, x, b);
 }
 
-function getInterpolator(sampleVal) {
+function getInterpolator(type) {
   // Return a function to find an interpolated value between end values v1, v2,
   // given relative position t between the two end positions
-
-  var type = typeof sampleVal;
-  if (type === "string" && color$1(sampleVal)) type = "color";
 
   switch (type) {
     case "number": // Linear interpolator
       return (v1, t, v2) => v1 + t * (v2 - v1);
 
     case "color":  // Interpolate RGBA
-      return (v1, t, v2) => 
-        interpColor( rgb$1(v1), t, rgb$1(v2) );
+      return (v1, t, v2) =>
+        v1.map((v, i) => v + t * (v2[i] - v));
 
     default:       // Assume step function
       return (v1, t, v2) => v1;
   }
 }
 
-function interpColor(c0, t, c1) {
-  // Inputs c0, c1 are rgb color objects as returned by d3.rgb
-  const interpFloat = (a, b) => a + t * (b - a);
-  const interpInteger = (a, b) => Math.round(interpFloat(a, b));
-
-  return "rgba(" +
-    interpInteger(c0.r, c1.r) + ", " +
-    interpInteger(c0.g, c1.g) + ", " + 
-    interpInteger(c0.b, c1.b) + ", " +
-    interpFloat(c0.a, c1.a) + ")";
-}
-
 function autoGetters(properties = {}, defaults) {
-  const getters = {};
-  Object.keys(defaults).forEach(key => {
-    getters[key] = buildStyleFunc(properties[key], defaults[key]);
-  });
-  return getters;
+  return Object.entries(defaults).reduce((d, [key, val]) => {
+    d[key] = buildStyleFunc(properties[key], val);
+    return d;
+  }, {});
 }
 
 function buildStyleFunc(style, defaultVal) {
-  var styleFunc, getArg;
-
   if (style === undefined) {
-    styleFunc = () => defaultVal;
-    styleFunc.type = "constant";
+    return getConstFunc(defaultVal);
 
   } else if (typeof style !== "object" || Array.isArray(style)) {
-    styleFunc = () => style;
-    styleFunc.type = "constant";
-
-  } else if (!style.property || style.property === "zoom") {
-    getArg = (zoom, feature) => zoom;
-    styleFunc = getStyleFunc(style, getArg);
-    styleFunc.type = "zoom";
+    return getConstFunc(style);
 
   } else {
-    let propertyName = style.property;
-    getArg = (zoom, feature) => feature.properties[propertyName];
-    styleFunc = getStyleFunc(style, getArg);
-    styleFunc.type = "property";
-    styleFunc.property = propertyName;
+    return getStyleFunc(style);
 
   } // NOT IMPLEMENTED: zoom-and-property functions
-
-  return styleFunc;
 }
 
-function getStyleFunc(style, getArg) {
-  if (style.type === "identity") return getArg;
-
-  // We should be building a stop function now. Make sure we have enough info
-  var stops = style.stops;
-  if (!stops || stops.length < 2 || stops[0].length !== 2) {
-    console.log("buildStyleFunc: style = " + JSON.stringify(style));
-    console.log("ERROR in buildStyleFunc: failed to understand style!");
-    return;
-  }
-
-  var stopFunc = buildStopFunc(stops, style.base);
-  return (zoom, feature) => stopFunc( getArg(zoom, feature) );
+function getConstFunc(rawVal) {
+  const val = convertIfColor(rawVal);
+  const func = () => val;
+  return Object.assign(func, { type: "constant" });
 }
 
-function buildStopFunc(stops, base = 1) {
-  const izm = stops.length - 1;
-  const interpolateVal = buildInterpFunc(base, stops[0][1]);
+function getStyleFunc(style) {
+  const { type, property = "zoom", base = 1, stops } = style;
 
-  return function(x) {
-    let iz = stops.findIndex(stop => stop[0] > x);
+  const getArg = (property === "zoom")
+    ? (zoom, feature) => zoom
+    : (zoom, feature) => feature.properties[property];
 
-    if (iz === 0) return stops[0][1]; // x is below first stop
-    if (iz < 0) return stops[izm][1]; // x is above last stop
+  const getVal = (type === "identity")
+    ? convertIfColor
+    : buildInterpolator(stops, base);
 
-    return interpolateVal(stops[iz-1], x, stops[iz]);
-  }
+  if (!getVal) return console.log("style: " + JSON.stringify(style) + 
+    "\nERROR in tile-stencil: unsupported style!");
+
+  const styleFunc = (zoom, feature) => getVal(getArg(zoom, feature));
+
+  return Object.assign(styleFunc, {
+    type: (property === "zoom") ? "zoom" : "property",
+    property,
+  });
 }
 
 const layoutDefaults = {
@@ -3044,14 +2622,41 @@ function hsl2rgb(h, m1, m2) {
       : m1) * 255;
 }
 
-function buildInterpFunc(base, sampleVal) {
-  // Return a function to interpolate the value of y(x), given endpoints
-  // p0 = (x0, y0) and p2 = (x1, y1)
+function buildInterpolator(stops, base = 1) {
+  if (!stops || stops.length < 2 || stops[0].length !== 2) return;
+
+  // Confirm stops are all the same type, and convert colors to arrays
+  const type = getType(stops[0][1]);
+  if (!stops.every(s => getType(s[1]) === type)) return;
+  stops = stops.map(([x, y]) => [x, convertIfColor(y)]);
+
+  const izm = stops.length - 1;
 
   const scale = getScale(base);
-  const interpolate = getInterpolator(sampleVal);
+  const interpolate = getInterpolator(type);
 
-  return (p0, x, p1) => interpolate( p0[1], scale(p0[0], x, p1[0]), p1[1] );
+  return function(x) {
+    let iz = stops.findIndex(stop => stop[0] > x);
+
+    if (iz === 0) return stops[0][1]; // x is below first stop
+    if (iz < 0) return stops[izm][1]; // x is above last stop
+
+    let [x0, y0] = stops[iz - 1];
+    let [x1, y1] = stops[iz];
+
+    return interpolate(y0, scale(x0, x, x1), y1);
+  }
+}
+
+function getType(v) {
+  return color(v) ? "color" : typeof v;
+}
+
+function convertIfColor(val) {
+  // Convert CSS color strings to clamped RGBA arrays for WebGL
+  if (!color(val)) return val;
+  let c = rgb(val);
+  return [c.r / 255, c.g / 255, c.b / 255, c.opacity];
 }
 
 function getScale(base) {
@@ -3069,101 +2674,69 @@ function getScale(base) {
     : scale(a, x, b);
 }
 
-function getInterpolator(sampleVal) {
+function getInterpolator(type) {
   // Return a function to find an interpolated value between end values v1, v2,
   // given relative position t between the two end positions
-
-  var type = typeof sampleVal;
-  if (type === "string" && color(sampleVal)) type = "color";
 
   switch (type) {
     case "number": // Linear interpolator
       return (v1, t, v2) => v1 + t * (v2 - v1);
 
     case "color":  // Interpolate RGBA
-      return (v1, t, v2) => 
-        interpColor( rgb(v1), t, rgb(v2) );
+      return (v1, t, v2) =>
+        v1.map((v, i) => v + t * (v2[i] - v));
 
     default:       // Assume step function
       return (v1, t, v2) => v1;
   }
 }
 
-function interpColor(c0, t, c1) {
-  // Inputs c0, c1 are rgb color objects as returned by d3.rgb
-  const interpFloat = (a, b) => a + t * (b - a);
-  const interpInteger = (a, b) => Math.round(interpFloat(a, b));
-
-  return "rgba(" +
-    interpInteger(c0.r, c1.r) + ", " +
-    interpInteger(c0.g, c1.g) + ", " + 
-    interpInteger(c0.b, c1.b) + ", " +
-    interpFloat(c0.a, c1.a) + ")";
-}
-
 function autoGetters(properties = {}, defaults) {
-  const getters = {};
-  Object.keys(defaults).forEach(key => {
-    getters[key] = buildStyleFunc(properties[key], defaults[key]);
-  });
-  return getters;
+  return Object.entries(defaults).reduce((d, [key, val]) => {
+    d[key] = buildStyleFunc(properties[key], val);
+    return d;
+  }, {});
 }
 
 function buildStyleFunc(style, defaultVal) {
-  var styleFunc, getArg;
-
   if (style === undefined) {
-    styleFunc = () => defaultVal;
-    styleFunc.type = "constant";
+    return getConstFunc(defaultVal);
 
   } else if (typeof style !== "object" || Array.isArray(style)) {
-    styleFunc = () => style;
-    styleFunc.type = "constant";
-
-  } else if (!style.property || style.property === "zoom") {
-    getArg = (zoom, feature) => zoom;
-    styleFunc = getStyleFunc(style, getArg);
-    styleFunc.type = "zoom";
+    return getConstFunc(style);
 
   } else {
-    let propertyName = style.property;
-    getArg = (zoom, feature) => feature.properties[propertyName];
-    styleFunc = getStyleFunc(style, getArg);
-    styleFunc.type = "property";
-    styleFunc.property = propertyName;
+    return getStyleFunc(style);
 
   } // NOT IMPLEMENTED: zoom-and-property functions
-
-  return styleFunc;
 }
 
-function getStyleFunc(style, getArg) {
-  if (style.type === "identity") return getArg;
-
-  // We should be building a stop function now. Make sure we have enough info
-  var stops = style.stops;
-  if (!stops || stops.length < 2 || stops[0].length !== 2) {
-    console.log("buildStyleFunc: style = " + JSON.stringify(style));
-    console.log("ERROR in buildStyleFunc: failed to understand style!");
-    return;
-  }
-
-  var stopFunc = buildStopFunc(stops, style.base);
-  return (zoom, feature) => stopFunc( getArg(zoom, feature) );
+function getConstFunc(rawVal) {
+  const val = convertIfColor(rawVal);
+  const func = () => val;
+  return Object.assign(func, { type: "constant" });
 }
 
-function buildStopFunc(stops, base = 1) {
-  const izm = stops.length - 1;
-  const interpolateVal = buildInterpFunc(base, stops[0][1]);
+function getStyleFunc(style) {
+  const { type, property = "zoom", base = 1, stops } = style;
 
-  return function(x) {
-    let iz = stops.findIndex(stop => stop[0] > x);
+  const getArg = (property === "zoom")
+    ? (zoom, feature) => zoom
+    : (zoom, feature) => feature.properties[property];
 
-    if (iz === 0) return stops[0][1]; // x is below first stop
-    if (iz < 0) return stops[izm][1]; // x is above last stop
+  const getVal = (type === "identity")
+    ? convertIfColor
+    : buildInterpolator(stops, base);
 
-    return interpolateVal(stops[iz-1], x, stops[iz]);
-  }
+  if (!getVal) return console.log("style: " + JSON.stringify(style) + 
+    "\nERROR in tile-stencil: unsupported style!");
+
+  const styleFunc = (zoom, feature) => getVal(getArg(zoom, feature));
+
+  return Object.assign(styleFunc, {
+    type: (property === "zoom") ? "zoom" : "property",
+    property,
+  });
 }
 
 const layoutDefaults = {
@@ -3479,99 +3052,7 @@ function getGeomFilter(type) {
   }
 }
 
-function getTokenParser(tokenText) {
-  if (!tokenText) return () => undefined;
-  const tokenPattern = /{([^{}]+)}/g;
-
-  // We break tokenText into pieces that are either plain text or tokens,
-  // then construct an array of functions to parse each piece
-  var tokenFuncs = [];
-  var charIndex  = 0;
-  while (charIndex < tokenText.length) {
-    // Find the next token
-    let result = tokenPattern.exec(tokenText);
-
-    if (!result) {
-      // No tokens left. Parse the plain text after the last token
-      let str = tokenText.substring(charIndex);
-      tokenFuncs.push(props => str);
-      break;
-    } else if (result.index > charIndex) {
-      // There is some plain text before the token
-      let str = tokenText.substring(charIndex, result.index);
-      tokenFuncs.push(props => str);
-    }
-
-    // Add a function to process the current token
-    let token = result[1];
-    tokenFuncs.push(props => props[token]);
-    charIndex = tokenPattern.lastIndex;
-  }
-  
-  // We now have an array of functions returning either a text string or
-  // a feature property
-  // Return a function that assembles everything
-  return function(properties) {
-    return tokenFuncs.reduce(concat, "");
-    function concat(str, tokenFunc) {
-      let text = tokenFunc(properties) || "";
-      return str += text;
-    }
-  };
-}
-
-function initText(parsedStyles) {
-  const transforms = parsedStyles
-    .filter(s => s.type === "symbol")
-    .reduce((d, s) => (d[s.id] = initTextGetter(s), d), {});
-
-  return function(layers, zoom) {
-    return Object.entries(layers).reduce((d, [id, layer]) => {
-      const transform = transforms[id];
-      if (!transform) return d;
-      
-      let { type, extent, features } = layer;
-      let mapped = features.map(f => transform(f, zoom));
-
-      if (mapped.length) d[id] = { type, extent, features: mapped };
-      return d;
-    }, {});
-  };
-}
-
-function initTextGetter(style) {
-  const layout = style.layout;
-
-  return function(feature, zoom) {
-    const { geometry, properties } = feature;
-
-    const textField = layout["text-field"](zoom, feature);
-    const text = getTokenParser(textField)(properties);
-    if (!text) return feature;
-
-    const transformCode = layout["text-transform"](zoom, feature);
-    const transform = getTextTransform(transformCode);
-
-    const charCodes = transform(text).split("").map(c => c.charCodeAt(0));
-    
-    const font = layout["text-font"](zoom, feature);
-
-    return { geometry, properties, font, charCodes };
-  };
-}
-
-function getTextTransform(code) {
-  switch (code) {
-    case "uppercase":
-      return f => f.toUpperCase();
-    case "lowercase":
-      return f => f.toLowerCase();
-    case "none":
-    default:
-      return f => f;
-  }
-}
-
+/*! ieee754. BSD-3-Clause License. Feross Aboukhadijeh <https://feross.org/opensource> */
 var read = function (buffer, offset, isLE, mLen, nBytes) {
   var e, m;
   var eLen = (nBytes * 8) - mLen - 1;
@@ -4389,7 +3870,6 @@ function outOfRange(point, size, image) {
 }
 
 const GLYPH_PBF_BORDER = 3;
-const ONE_EM = 24;
 
 function parseGlyphPbf(data) {
   // See mapbox-gl-js/src/style/parse_glyph_pbf.js
@@ -4650,25 +4130,900 @@ function initGetter(urlTemplate, key) {
   };
 }
 
-function initGlyphs(glyphEndpoint) {
+function getTokenParser(tokenText) {
+  if (!tokenText) return () => undefined;
+  const tokenPattern = /{([^{}]+)}/g;
+
+  // We break tokenText into pieces that are either plain text or tokens,
+  // then construct an array of functions to parse each piece
+  var tokenFuncs = [];
+  var charIndex  = 0;
+  while (charIndex < tokenText.length) {
+    // Find the next token
+    let result = tokenPattern.exec(tokenText);
+
+    if (!result) {
+      // No tokens left. Parse the plain text after the last token
+      let str = tokenText.substring(charIndex);
+      tokenFuncs.push(props => str);
+      break;
+    } else if (result.index > charIndex) {
+      // There is some plain text before the token
+      let str = tokenText.substring(charIndex, result.index);
+      tokenFuncs.push(props => str);
+    }
+
+    // Add a function to process the current token
+    let token = result[1];
+    tokenFuncs.push(props => props[token]);
+    charIndex = tokenPattern.lastIndex;
+  }
+  
+  // We now have an array of functions returning either a text string or
+  // a feature property
+  // Return a function that assembles everything
+  return function(properties) {
+    return tokenFuncs.reduce(concat, "");
+    function concat(str, tokenFunc) {
+      let text = tokenFunc(properties) || "";
+      return str += text;
+    }
+  };
+}
+
+function initAtlasGetter({ parsedStyles, glyphEndpoint }) {
   const getAtlas = initGetter(glyphEndpoint);
 
+  const textGetters = parsedStyles
+    .filter(s => s.type === "symbol")
+    .reduce((d, s) => (d[s.id] = initTextGetter(s), d), {});
+
   return function(layers, zoom) {
-    const fonts = Object.values(layers)
-      .map(layer => layer.features)
-      .reduce(collectCharCodes, {});
+    const fonts = Object.entries(layers).reduce((d, [id, layer]) => {
+      const getCharCodes = textGetters[id];
+      if (!getCharCodes) return d;
+
+      // NOTE: MODIFIES layer.features IN PLACE
+      layer.features.forEach(f => getCharCodes(f, zoom, d));
+      return d;
+    }, {});
 
     return getAtlas(fonts);
   };
 }
 
-function collectCharCodes(fonts, features) {
-  const textFeatures = features.filter(f => f.charCodes && f.charCodes.length);
-  textFeatures.forEach(f => {
-    let font = fonts[f.font] || (fonts[f.font] = new Set());
-    f.charCodes.forEach(font.add, font);
+function initTextGetter(style) {
+  const layout = style.layout;
+
+  return function(feature, zoom, fonts) {
+    // Get the label text from feature properties
+    const textField = layout["text-field"](zoom, feature);
+    const text = getTokenParser(textField)(feature.properties);
+    if (!text) return;
+
+    // Apply the text transform, and convert to character codes
+    const transformCode = layout["text-transform"](zoom, feature);
+    const transformedText = getTextTransform(transformCode)(text);
+    const charCodes = transformedText.split("").map(c => c.charCodeAt(0));
+    if (!charCodes.length) return;
+
+    // Update the set of character codes for the appropriate font
+    const font = layout["text-font"](zoom, feature);
+    const charSet = fonts[font] || (fonts[font] = new Set());
+    charCodes.forEach(charSet.add, charSet);
+
+    // Add font name and character codes to the feature (MODIFY IN PLACE!)
+    Object.assign(feature, { font, charCodes });
+  };
+}
+
+function getTextTransform(code) {
+  switch (code) {
+    case "uppercase":
+      return f => f.toUpperCase();
+    case "lowercase":
+      return f => f.toLowerCase();
+    case "none":
+    default:
+      return f => f;
+  }
+}
+
+function parseCircle(feature) {
+  const points = flattenPoints(feature.geometry);
+  if (points) return { points };
+}
+
+function flattenPoints(geometry) {
+  const { type, coordinates } = geometry;
+
+  switch (type) {
+    case "Point":
+      return coordinates;
+    case "MultiPoint":
+      return coordinates.flat();
+    default:
+      return;
+  }
+}
+
+function parseLine(feature) {
+  const lines = flattenLines(feature.geometry);
+  if (lines) return { lines };
+}
+
+function flattenLines(geometry) {
+  let { type, coordinates } = geometry;
+
+  switch (type) {
+    case "LineString":
+      return flattenLineString(coordinates);
+    case "MultiLineString":
+      return coordinates.flatMap(flattenLineString);
+    case "Polygon":
+      return flattenPolygon(coordinates);
+    case "MultiPolygon":
+      return coordinates.flatMap(flattenPolygon);
+    default:
+      return;
+  }
+}
+
+function flattenLineString(line) {
+  return [
+    ...[...line[0], -2.0],
+    ...line.flatMap(([x, y]) => [x, y, 0.0]),
+    ...[...line[line.length - 1], -2.0]
+  ];
+}
+
+function flattenPolygon(rings) {
+  return rings.flatMap(flattenLinearRing);
+}
+
+function flattenLinearRing(ring) {
+  // Definition of linear ring:
+  // ring.length > 3 && ring[ring.length - 1] == ring[0]
+  return [
+    ...[...ring[ring.length - 2], -2.0],
+    ...ring.flatMap(([x, y]) => [x, y, 0.0]),
+    ...[...ring[1], -2.0]
+  ];
+}
+
+var earcut_1 = earcut;
+var default_1 = earcut;
+
+function earcut(data, holeIndices, dim) {
+
+    dim = dim || 2;
+
+    var hasHoles = holeIndices && holeIndices.length,
+        outerLen = hasHoles ? holeIndices[0] * dim : data.length,
+        outerNode = linkedList(data, 0, outerLen, dim, true),
+        triangles = [];
+
+    if (!outerNode || outerNode.next === outerNode.prev) return triangles;
+
+    var minX, minY, maxX, maxY, x, y, invSize;
+
+    if (hasHoles) outerNode = eliminateHoles(data, holeIndices, outerNode, dim);
+
+    // if the shape is not too simple, we'll use z-order curve hash later; calculate polygon bbox
+    if (data.length > 80 * dim) {
+        minX = maxX = data[0];
+        minY = maxY = data[1];
+
+        for (var i = dim; i < outerLen; i += dim) {
+            x = data[i];
+            y = data[i + 1];
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+        }
+
+        // minX, minY and invSize are later used to transform coords into integers for z-order calculation
+        invSize = Math.max(maxX - minX, maxY - minY);
+        invSize = invSize !== 0 ? 1 / invSize : 0;
+    }
+
+    earcutLinked(outerNode, triangles, dim, minX, minY, invSize);
+
+    return triangles;
+}
+
+// create a circular doubly linked list from polygon points in the specified winding order
+function linkedList(data, start, end, dim, clockwise) {
+    var i, last;
+
+    if (clockwise === (signedArea(data, start, end, dim) > 0)) {
+        for (i = start; i < end; i += dim) last = insertNode(i, data[i], data[i + 1], last);
+    } else {
+        for (i = end - dim; i >= start; i -= dim) last = insertNode(i, data[i], data[i + 1], last);
+    }
+
+    if (last && equals(last, last.next)) {
+        removeNode(last);
+        last = last.next;
+    }
+
+    return last;
+}
+
+// eliminate colinear or duplicate points
+function filterPoints(start, end) {
+    if (!start) return start;
+    if (!end) end = start;
+
+    var p = start,
+        again;
+    do {
+        again = false;
+
+        if (!p.steiner && (equals(p, p.next) || area(p.prev, p, p.next) === 0)) {
+            removeNode(p);
+            p = end = p.prev;
+            if (p === p.next) break;
+            again = true;
+
+        } else {
+            p = p.next;
+        }
+    } while (again || p !== end);
+
+    return end;
+}
+
+// main ear slicing loop which triangulates a polygon (given as a linked list)
+function earcutLinked(ear, triangles, dim, minX, minY, invSize, pass) {
+    if (!ear) return;
+
+    // interlink polygon nodes in z-order
+    if (!pass && invSize) indexCurve(ear, minX, minY, invSize);
+
+    var stop = ear,
+        prev, next;
+
+    // iterate through ears, slicing them one by one
+    while (ear.prev !== ear.next) {
+        prev = ear.prev;
+        next = ear.next;
+
+        if (invSize ? isEarHashed(ear, minX, minY, invSize) : isEar(ear)) {
+            // cut off the triangle
+            triangles.push(prev.i / dim);
+            triangles.push(ear.i / dim);
+            triangles.push(next.i / dim);
+
+            removeNode(ear);
+
+            // skipping the next vertex leads to less sliver triangles
+            ear = next.next;
+            stop = next.next;
+
+            continue;
+        }
+
+        ear = next;
+
+        // if we looped through the whole remaining polygon and can't find any more ears
+        if (ear === stop) {
+            // try filtering points and slicing again
+            if (!pass) {
+                earcutLinked(filterPoints(ear), triangles, dim, minX, minY, invSize, 1);
+
+            // if this didn't work, try curing all small self-intersections locally
+            } else if (pass === 1) {
+                ear = cureLocalIntersections(filterPoints(ear), triangles, dim);
+                earcutLinked(ear, triangles, dim, minX, minY, invSize, 2);
+
+            // as a last resort, try splitting the remaining polygon into two
+            } else if (pass === 2) {
+                splitEarcut(ear, triangles, dim, minX, minY, invSize);
+            }
+
+            break;
+        }
+    }
+}
+
+// check whether a polygon node forms a valid ear with adjacent nodes
+function isEar(ear) {
+    var a = ear.prev,
+        b = ear,
+        c = ear.next;
+
+    if (area(a, b, c) >= 0) return false; // reflex, can't be an ear
+
+    // now make sure we don't have other points inside the potential ear
+    var p = ear.next.next;
+
+    while (p !== ear.prev) {
+        if (pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, p.x, p.y) &&
+            area(p.prev, p, p.next) >= 0) return false;
+        p = p.next;
+    }
+
+    return true;
+}
+
+function isEarHashed(ear, minX, minY, invSize) {
+    var a = ear.prev,
+        b = ear,
+        c = ear.next;
+
+    if (area(a, b, c) >= 0) return false; // reflex, can't be an ear
+
+    // triangle bbox; min & max are calculated like this for speed
+    var minTX = a.x < b.x ? (a.x < c.x ? a.x : c.x) : (b.x < c.x ? b.x : c.x),
+        minTY = a.y < b.y ? (a.y < c.y ? a.y : c.y) : (b.y < c.y ? b.y : c.y),
+        maxTX = a.x > b.x ? (a.x > c.x ? a.x : c.x) : (b.x > c.x ? b.x : c.x),
+        maxTY = a.y > b.y ? (a.y > c.y ? a.y : c.y) : (b.y > c.y ? b.y : c.y);
+
+    // z-order range for the current triangle bbox;
+    var minZ = zOrder(minTX, minTY, minX, minY, invSize),
+        maxZ = zOrder(maxTX, maxTY, minX, minY, invSize);
+
+    var p = ear.prevZ,
+        n = ear.nextZ;
+
+    // look for points inside the triangle in both directions
+    while (p && p.z >= minZ && n && n.z <= maxZ) {
+        if (p !== ear.prev && p !== ear.next &&
+            pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, p.x, p.y) &&
+            area(p.prev, p, p.next) >= 0) return false;
+        p = p.prevZ;
+
+        if (n !== ear.prev && n !== ear.next &&
+            pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, n.x, n.y) &&
+            area(n.prev, n, n.next) >= 0) return false;
+        n = n.nextZ;
+    }
+
+    // look for remaining points in decreasing z-order
+    while (p && p.z >= minZ) {
+        if (p !== ear.prev && p !== ear.next &&
+            pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, p.x, p.y) &&
+            area(p.prev, p, p.next) >= 0) return false;
+        p = p.prevZ;
+    }
+
+    // look for remaining points in increasing z-order
+    while (n && n.z <= maxZ) {
+        if (n !== ear.prev && n !== ear.next &&
+            pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, n.x, n.y) &&
+            area(n.prev, n, n.next) >= 0) return false;
+        n = n.nextZ;
+    }
+
+    return true;
+}
+
+// go through all polygon nodes and cure small local self-intersections
+function cureLocalIntersections(start, triangles, dim) {
+    var p = start;
+    do {
+        var a = p.prev,
+            b = p.next.next;
+
+        if (!equals(a, b) && intersects(a, p, p.next, b) && locallyInside(a, b) && locallyInside(b, a)) {
+
+            triangles.push(a.i / dim);
+            triangles.push(p.i / dim);
+            triangles.push(b.i / dim);
+
+            // remove two nodes involved
+            removeNode(p);
+            removeNode(p.next);
+
+            p = start = b;
+        }
+        p = p.next;
+    } while (p !== start);
+
+    return filterPoints(p);
+}
+
+// try splitting polygon into two and triangulate them independently
+function splitEarcut(start, triangles, dim, minX, minY, invSize) {
+    // look for a valid diagonal that divides the polygon into two
+    var a = start;
+    do {
+        var b = a.next.next;
+        while (b !== a.prev) {
+            if (a.i !== b.i && isValidDiagonal(a, b)) {
+                // split the polygon in two by the diagonal
+                var c = splitPolygon(a, b);
+
+                // filter colinear points around the cuts
+                a = filterPoints(a, a.next);
+                c = filterPoints(c, c.next);
+
+                // run earcut on each half
+                earcutLinked(a, triangles, dim, minX, minY, invSize);
+                earcutLinked(c, triangles, dim, minX, minY, invSize);
+                return;
+            }
+            b = b.next;
+        }
+        a = a.next;
+    } while (a !== start);
+}
+
+// link every hole into the outer loop, producing a single-ring polygon without holes
+function eliminateHoles(data, holeIndices, outerNode, dim) {
+    var queue = [],
+        i, len, start, end, list;
+
+    for (i = 0, len = holeIndices.length; i < len; i++) {
+        start = holeIndices[i] * dim;
+        end = i < len - 1 ? holeIndices[i + 1] * dim : data.length;
+        list = linkedList(data, start, end, dim, false);
+        if (list === list.next) list.steiner = true;
+        queue.push(getLeftmost(list));
+    }
+
+    queue.sort(compareX);
+
+    // process holes from left to right
+    for (i = 0; i < queue.length; i++) {
+        eliminateHole(queue[i], outerNode);
+        outerNode = filterPoints(outerNode, outerNode.next);
+    }
+
+    return outerNode;
+}
+
+function compareX(a, b) {
+    return a.x - b.x;
+}
+
+// find a bridge between vertices that connects hole with an outer ring and and link it
+function eliminateHole(hole, outerNode) {
+    outerNode = findHoleBridge(hole, outerNode);
+    if (outerNode) {
+        var b = splitPolygon(outerNode, hole);
+
+        // filter collinear points around the cuts
+        filterPoints(outerNode, outerNode.next);
+        filterPoints(b, b.next);
+    }
+}
+
+// David Eberly's algorithm for finding a bridge between hole and outer polygon
+function findHoleBridge(hole, outerNode) {
+    var p = outerNode,
+        hx = hole.x,
+        hy = hole.y,
+        qx = -Infinity,
+        m;
+
+    // find a segment intersected by a ray from the hole's leftmost point to the left;
+    // segment's endpoint with lesser x will be potential connection point
+    do {
+        if (hy <= p.y && hy >= p.next.y && p.next.y !== p.y) {
+            var x = p.x + (hy - p.y) * (p.next.x - p.x) / (p.next.y - p.y);
+            if (x <= hx && x > qx) {
+                qx = x;
+                if (x === hx) {
+                    if (hy === p.y) return p;
+                    if (hy === p.next.y) return p.next;
+                }
+                m = p.x < p.next.x ? p : p.next;
+            }
+        }
+        p = p.next;
+    } while (p !== outerNode);
+
+    if (!m) return null;
+
+    if (hx === qx) return m; // hole touches outer segment; pick leftmost endpoint
+
+    // look for points inside the triangle of hole point, segment intersection and endpoint;
+    // if there are no points found, we have a valid connection;
+    // otherwise choose the point of the minimum angle with the ray as connection point
+
+    var stop = m,
+        mx = m.x,
+        my = m.y,
+        tanMin = Infinity,
+        tan;
+
+    p = m;
+
+    do {
+        if (hx >= p.x && p.x >= mx && hx !== p.x &&
+                pointInTriangle(hy < my ? hx : qx, hy, mx, my, hy < my ? qx : hx, hy, p.x, p.y)) {
+
+            tan = Math.abs(hy - p.y) / (hx - p.x); // tangential
+
+            if (locallyInside(p, hole) &&
+                (tan < tanMin || (tan === tanMin && (p.x > m.x || (p.x === m.x && sectorContainsSector(m, p)))))) {
+                m = p;
+                tanMin = tan;
+            }
+        }
+
+        p = p.next;
+    } while (p !== stop);
+
+    return m;
+}
+
+// whether sector in vertex m contains sector in vertex p in the same coordinates
+function sectorContainsSector(m, p) {
+    return area(m.prev, m, p.prev) < 0 && area(p.next, m, m.next) < 0;
+}
+
+// interlink polygon nodes in z-order
+function indexCurve(start, minX, minY, invSize) {
+    var p = start;
+    do {
+        if (p.z === null) p.z = zOrder(p.x, p.y, minX, minY, invSize);
+        p.prevZ = p.prev;
+        p.nextZ = p.next;
+        p = p.next;
+    } while (p !== start);
+
+    p.prevZ.nextZ = null;
+    p.prevZ = null;
+
+    sortLinked(p);
+}
+
+// Simon Tatham's linked list merge sort algorithm
+// http://www.chiark.greenend.org.uk/~sgtatham/algorithms/listsort.html
+function sortLinked(list) {
+    var i, p, q, e, tail, numMerges, pSize, qSize,
+        inSize = 1;
+
+    do {
+        p = list;
+        list = null;
+        tail = null;
+        numMerges = 0;
+
+        while (p) {
+            numMerges++;
+            q = p;
+            pSize = 0;
+            for (i = 0; i < inSize; i++) {
+                pSize++;
+                q = q.nextZ;
+                if (!q) break;
+            }
+            qSize = inSize;
+
+            while (pSize > 0 || (qSize > 0 && q)) {
+
+                if (pSize !== 0 && (qSize === 0 || !q || p.z <= q.z)) {
+                    e = p;
+                    p = p.nextZ;
+                    pSize--;
+                } else {
+                    e = q;
+                    q = q.nextZ;
+                    qSize--;
+                }
+
+                if (tail) tail.nextZ = e;
+                else list = e;
+
+                e.prevZ = tail;
+                tail = e;
+            }
+
+            p = q;
+        }
+
+        tail.nextZ = null;
+        inSize *= 2;
+
+    } while (numMerges > 1);
+
+    return list;
+}
+
+// z-order of a point given coords and inverse of the longer side of data bbox
+function zOrder(x, y, minX, minY, invSize) {
+    // coords are transformed into non-negative 15-bit integer range
+    x = 32767 * (x - minX) * invSize;
+    y = 32767 * (y - minY) * invSize;
+
+    x = (x | (x << 8)) & 0x00FF00FF;
+    x = (x | (x << 4)) & 0x0F0F0F0F;
+    x = (x | (x << 2)) & 0x33333333;
+    x = (x | (x << 1)) & 0x55555555;
+
+    y = (y | (y << 8)) & 0x00FF00FF;
+    y = (y | (y << 4)) & 0x0F0F0F0F;
+    y = (y | (y << 2)) & 0x33333333;
+    y = (y | (y << 1)) & 0x55555555;
+
+    return x | (y << 1);
+}
+
+// find the leftmost node of a polygon ring
+function getLeftmost(start) {
+    var p = start,
+        leftmost = start;
+    do {
+        if (p.x < leftmost.x || (p.x === leftmost.x && p.y < leftmost.y)) leftmost = p;
+        p = p.next;
+    } while (p !== start);
+
+    return leftmost;
+}
+
+// check if a point lies within a convex triangle
+function pointInTriangle(ax, ay, bx, by, cx, cy, px, py) {
+    return (cx - px) * (ay - py) - (ax - px) * (cy - py) >= 0 &&
+           (ax - px) * (by - py) - (bx - px) * (ay - py) >= 0 &&
+           (bx - px) * (cy - py) - (cx - px) * (by - py) >= 0;
+}
+
+// check if a diagonal between two polygon nodes is valid (lies in polygon interior)
+function isValidDiagonal(a, b) {
+    return a.next.i !== b.i && a.prev.i !== b.i && !intersectsPolygon(a, b) && // dones't intersect other edges
+           (locallyInside(a, b) && locallyInside(b, a) && middleInside(a, b) && // locally visible
+            (area(a.prev, a, b.prev) || area(a, b.prev, b)) || // does not create opposite-facing sectors
+            equals(a, b) && area(a.prev, a, a.next) > 0 && area(b.prev, b, b.next) > 0); // special zero-length case
+}
+
+// signed area of a triangle
+function area(p, q, r) {
+    return (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+}
+
+// check if two points are equal
+function equals(p1, p2) {
+    return p1.x === p2.x && p1.y === p2.y;
+}
+
+// check if two segments intersect
+function intersects(p1, q1, p2, q2) {
+    var o1 = sign(area(p1, q1, p2));
+    var o2 = sign(area(p1, q1, q2));
+    var o3 = sign(area(p2, q2, p1));
+    var o4 = sign(area(p2, q2, q1));
+
+    if (o1 !== o2 && o3 !== o4) return true; // general case
+
+    if (o1 === 0 && onSegment(p1, p2, q1)) return true; // p1, q1 and p2 are collinear and p2 lies on p1q1
+    if (o2 === 0 && onSegment(p1, q2, q1)) return true; // p1, q1 and q2 are collinear and q2 lies on p1q1
+    if (o3 === 0 && onSegment(p2, p1, q2)) return true; // p2, q2 and p1 are collinear and p1 lies on p2q2
+    if (o4 === 0 && onSegment(p2, q1, q2)) return true; // p2, q2 and q1 are collinear and q1 lies on p2q2
+
+    return false;
+}
+
+// for collinear points p, q, r, check if point q lies on segment pr
+function onSegment(p, q, r) {
+    return q.x <= Math.max(p.x, r.x) && q.x >= Math.min(p.x, r.x) && q.y <= Math.max(p.y, r.y) && q.y >= Math.min(p.y, r.y);
+}
+
+function sign(num) {
+    return num > 0 ? 1 : num < 0 ? -1 : 0;
+}
+
+// check if a polygon diagonal intersects any polygon segments
+function intersectsPolygon(a, b) {
+    var p = a;
+    do {
+        if (p.i !== a.i && p.next.i !== a.i && p.i !== b.i && p.next.i !== b.i &&
+                intersects(p, p.next, a, b)) return true;
+        p = p.next;
+    } while (p !== a);
+
+    return false;
+}
+
+// check if a polygon diagonal is locally inside the polygon
+function locallyInside(a, b) {
+    return area(a.prev, a, a.next) < 0 ?
+        area(a, b, a.next) >= 0 && area(a, a.prev, b) >= 0 :
+        area(a, b, a.prev) < 0 || area(a, a.next, b) < 0;
+}
+
+// check if the middle point of a polygon diagonal is inside the polygon
+function middleInside(a, b) {
+    var p = a,
+        inside = false,
+        px = (a.x + b.x) / 2,
+        py = (a.y + b.y) / 2;
+    do {
+        if (((p.y > py) !== (p.next.y > py)) && p.next.y !== p.y &&
+                (px < (p.next.x - p.x) * (py - p.y) / (p.next.y - p.y) + p.x))
+            inside = !inside;
+        p = p.next;
+    } while (p !== a);
+
+    return inside;
+}
+
+// link two polygon vertices with a bridge; if the vertices belong to the same ring, it splits polygon into two;
+// if one belongs to the outer ring and another to a hole, it merges it into a single ring
+function splitPolygon(a, b) {
+    var a2 = new Node(a.i, a.x, a.y),
+        b2 = new Node(b.i, b.x, b.y),
+        an = a.next,
+        bp = b.prev;
+
+    a.next = b;
+    b.prev = a;
+
+    a2.next = an;
+    an.prev = a2;
+
+    b2.next = a2;
+    a2.prev = b2;
+
+    bp.next = b2;
+    b2.prev = bp;
+
+    return b2;
+}
+
+// create a node and optionally link it with previous one (in a circular doubly linked list)
+function insertNode(i, x, y, last) {
+    var p = new Node(i, x, y);
+
+    if (!last) {
+        p.prev = p;
+        p.next = p;
+
+    } else {
+        p.next = last.next;
+        p.prev = last;
+        last.next.prev = p;
+        last.next = p;
+    }
+    return p;
+}
+
+function removeNode(p) {
+    p.next.prev = p.prev;
+    p.prev.next = p.next;
+
+    if (p.prevZ) p.prevZ.nextZ = p.nextZ;
+    if (p.nextZ) p.nextZ.prevZ = p.prevZ;
+}
+
+function Node(i, x, y) {
+    // vertex index in coordinates array
+    this.i = i;
+
+    // vertex coordinates
+    this.x = x;
+    this.y = y;
+
+    // previous and next vertex nodes in a polygon ring
+    this.prev = null;
+    this.next = null;
+
+    // z-order curve value
+    this.z = null;
+
+    // previous and next nodes in z-order
+    this.prevZ = null;
+    this.nextZ = null;
+
+    // indicates whether this is a steiner point
+    this.steiner = false;
+}
+
+// return a percentage difference between the polygon area and its triangulation area;
+// used to verify correctness of triangulation
+earcut.deviation = function (data, holeIndices, dim, triangles) {
+    var hasHoles = holeIndices && holeIndices.length;
+    var outerLen = hasHoles ? holeIndices[0] * dim : data.length;
+
+    var polygonArea = Math.abs(signedArea(data, 0, outerLen, dim));
+    if (hasHoles) {
+        for (var i = 0, len = holeIndices.length; i < len; i++) {
+            var start = holeIndices[i] * dim;
+            var end = i < len - 1 ? holeIndices[i + 1] * dim : data.length;
+            polygonArea -= Math.abs(signedArea(data, start, end, dim));
+        }
+    }
+
+    var trianglesArea = 0;
+    for (i = 0; i < triangles.length; i += 3) {
+        var a = triangles[i] * dim;
+        var b = triangles[i + 1] * dim;
+        var c = triangles[i + 2] * dim;
+        trianglesArea += Math.abs(
+            (data[a] - data[c]) * (data[b + 1] - data[a + 1]) -
+            (data[a] - data[b]) * (data[c + 1] - data[a + 1]));
+    }
+
+    return polygonArea === 0 && trianglesArea === 0 ? 0 :
+        Math.abs((trianglesArea - polygonArea) / polygonArea);
+};
+
+function signedArea(data, start, end, dim) {
+    var sum = 0;
+    for (var i = start, j = end - dim; i < end; i += dim) {
+        sum += (data[j] - data[i]) * (data[i + 1] + data[j + 1]);
+        j = i;
+    }
+    return sum;
+}
+
+// turn a polygon in a multi-dimensional array form (e.g. as in GeoJSON) into a form Earcut accepts
+earcut.flatten = function (data) {
+    var dim = data[0][0].length,
+        result = {vertices: [], holes: [], dimensions: dim},
+        holeIndex = 0;
+
+    for (var i = 0; i < data.length; i++) {
+        for (var j = 0; j < data[i].length; j++) {
+            for (var d = 0; d < dim; d++) result.vertices.push(data[i][j][d]);
+        }
+        if (i > 0) {
+            holeIndex += data[i - 1].length;
+            result.holes.push(holeIndex);
+        }
+    }
+    return result;
+};
+earcut_1.default = default_1;
+
+function parseFill(feature) {
+  const triangles = triangulate(feature.geometry);
+
+  if (triangles) return {
+    vertices: triangles.vertices,
+    indices: triangles.indices,
+  };
+}
+
+function triangulate(geometry) {
+  const { type, coordinates } = geometry;
+
+  switch (type) {
+    case "Polygon":
+      return indexPolygon(coordinates);
+    case "MultiPolygon":
+      return coordinates.map(indexPolygon).reduce((acc, cur) => {
+        let indexShift = acc.vertices.length / 2;
+        acc.vertices.push(...cur.vertices);
+        acc.indices.push(...cur.indices.map(h => h + indexShift));
+        return acc;
+      });
+    default:
+      return;
+  }
+}
+
+function indexPolygon(coords) {
+  let { vertices, holes, dimensions } = earcut_1.flatten(coords);
+  let indices = earcut_1(vertices, holes, dimensions);
+  return { vertices, indices };
+}
+
+const GLYPH_PBF_BORDER$1 = 3;
+const ONE_EM = 24;
+
+const ATLAS_PADDING$1 = 1;
+
+const RECT_BUFFER = GLYPH_PBF_BORDER$1 + ATLAS_PADDING$1;
+
+function layoutLine(glyphs, origin, spacing, scalar) {
+  var xCursor = origin[0];
+  const y0 = origin[1];
+
+  return glyphs.flatMap(g => {
+    let { left, top, advance } = g.metrics;
+
+    let dx = xCursor + left - RECT_BUFFER;
+    let dy = y0 - top - RECT_BUFFER;
+
+    xCursor += advance + spacing;
+
+    return [dx, dy, scalar];
   });
-  return fonts;
 }
 
 function getGlyphInfo(feature, atlas) {
@@ -4686,34 +5041,6 @@ function getGlyphInfo(feature, atlas) {
 
   return info.filter(i => i !== undefined);
 }
-
-const whitespace = {
-  // From mapbox-gl-js/src/symbol/shaping.js
-  [0x09]: true, // tab
-  [0x0a]: true, // newline
-  [0x0b]: true, // vertical tab
-  [0x0c]: true, // form feed
-  [0x0d]: true, // carriage return
-  [0x20]: true, // space
-};
-
-const breakable = {
-  // From mapbox-gl-js/src/symbol/shaping.js
-  [0x0a]:   true, // newline
-  [0x20]:   true, // space
-  [0x26]:   true, // ampersand
-  [0x28]:   true, // left parenthesis
-  [0x29]:   true, // right parenthesis
-  [0x2b]:   true, // plus sign
-  [0x2d]:   true, // hyphen-minus
-  [0x2f]:   true, // solidus
-  [0xad]:   true, // soft hyphen
-  [0xb7]:   true, // middle dot
-  [0x200b]: true, // zero-width space
-  [0x2010]: true, // hyphen
-  [0x2013]: true, // en dash
-  [0x2027]: true  // interpunct
-};
 
 function getTextBoxShift(anchor) {
   // Shift the top-left corner of the text bounding box
@@ -4756,6 +5083,34 @@ function getLineShift(justify, boxShiftX) {
       return 0.5;
   }
 }
+
+const whitespace = {
+  // From mapbox-gl-js/src/symbol/shaping.js
+  [0x09]: true, // tab
+  [0x0a]: true, // newline
+  [0x0b]: true, // vertical tab
+  [0x0c]: true, // form feed
+  [0x0d]: true, // carriage return
+  [0x20]: true, // space
+};
+
+const breakable = {
+  // From mapbox-gl-js/src/symbol/shaping.js
+  [0x0a]:   true, // newline
+  [0x20]:   true, // space
+  [0x26]:   true, // ampersand
+  [0x28]:   true, // left parenthesis
+  [0x29]:   true, // right parenthesis
+  [0x2b]:   true, // plus sign
+  [0x2d]:   true, // hyphen-minus
+  [0x2f]:   true, // solidus
+  [0xad]:   true, // soft hyphen
+  [0xb7]:   true, // middle dot
+  [0x200b]: true, // zero-width space
+  [0x2010]: true, // hyphen
+  [0x2013]: true, // en dash
+  [0x2027]: true  // interpunct
+};
 
 function getBreakPoints(glyphs, spacing, targetWidth) {
   const potentialLineBreaks = [];
@@ -4886,9 +5241,7 @@ function trailingWhiteSpace(line) {
   return whitespace[line[len - 1].code];
 }
 
-const RECT_BUFFER = GLYPH_PBF_BORDER + ATLAS_PADDING;
-
-function initShaping(style) {
+function initShaper(style) {
   const layout = style.layout;
 
   return function(feature, zoom, atlas) {
@@ -4926,9 +5279,11 @@ function initShaping(style) {
       return [x, y];
     });
 
-    // 5. Compute top left corners of the glyphs in each line
+    // 5. Compute top left corners of the glyphs in each line,
+    //    appending the font size scalar for final positioning
+    const scalar = layout["text-size"](zoom, feature) / ONE_EM;
     const deltas = lines
-      .flatMap((l, i) => layoutLine(l, lineOrigins[i], spacing));
+      .flatMap((l, i) => layoutLine(l, lineOrigins[i], spacing, scalar));
 
     // 6. Fill in label origins for each glyph. TODO: assumes Point geometry
     const origin = feature.geometry.coordinates.slice();
@@ -4940,7 +5295,6 @@ function initShaping(style) {
       .flatMap(g => Object.values(g.rect));
 
     // 8. Compute bounding box for collision checks
-    const scalar = layout["text-size"](zoom, feature) / ONE_EM;
     const textPadding = layout["text-padding"](zoom, feature);
     const bbox = [
       boxOrigin[0] * scalar - textPadding,
@@ -4953,20 +5307,132 @@ function initShaping(style) {
   }
 }
 
-function layoutLine(glyphs, origin, spacing) {
-  var xCursor = origin[0];
-  const y0 = origin[1];
+function initShaping(style) {
+  const shaper = initShaper(style);
 
-  return glyphs.flatMap(g => {
-    let { left, top, advance } = g.metrics;
+  return function(feature, zoom, atlas, tree) {
+    // tree is an RBush from the 'rbush' module. NOTE: will be updated!
 
-    let dx = xCursor + left - RECT_BUFFER;
-    let dy = y0 - top - RECT_BUFFER;
+    const buffers = shaper(feature, zoom, atlas);
+    if (!buffers) return;
 
-    xCursor += advance + spacing;
+    let { origins: [x0, y0], bbox } = buffers;
+    let box = {
+      minX: x0 + bbox[0],
+      minY: y0 + bbox[1],
+      maxX: x0 + bbox[2],
+      maxY: y0 + bbox[3],
+    };
 
-    return [dx, dy];
+    if (tree.collides(box)) return;
+
+    tree.insert(box);
+
+    // TODO: drop if outside tile?
+    return buffers;
+  };
+}
+
+function initSerializer(style) {
+  const { getLen, parse } = initParser(style);
+
+  return function(feature, tileCoords, atlas, tree) {
+    const { z, x, y } = tileCoords;
+
+    const buffers = parse(feature, z, atlas, tree);
+
+    if (buffers) buffers.tileCoords = Array
+      .from({ length: getLen(buffers) })
+      .flatMap(v => [x, y, z]);
+
+    return buffers;
+  };
+}
+
+function initParser(style) {
+  switch (style.type) {
+    case "circle":
+      return { 
+        getLen: (b) => b.points.length / 2,
+        parse: parseCircle,
+      };
+    case "line":
+      return {
+        getLen: (b) => b.lines.length / 3 - 3,
+        parse: parseLine,
+      };
+    case "fill":
+      return {
+        getLen: (b) => b.vertices.length / 2,
+        parse: parseFill,
+      };
+    case "symbol":
+      return {
+        getLen: (b) => b.origins.length / 2,
+        parse: initShaping(style),
+      };
+    default:
+      throw Error("tile-gl: unknown serializer type!");
+  }
+}
+
+function initFeatureGrouper(style) {
+  // Find the names of the feature properties that affect rendering
+  const renderPropertyNames = Object.values(style.paint)
+    .filter(styleFunc => styleFunc.type === "property")
+    .map(styleFunc => styleFunc.property);
+
+  return function(features) {
+    // Group features that will be styled the same
+    const groups = {};
+    features.forEach(feature => {
+      // Keep only the properties relevant to rendering
+      let properties = renderPropertyNames
+        .reduce((d, k) => (d[k] = feature.properties[k], d), {});
+
+      // Look up the appropriate group, or create it if it doesn't exist
+      let key = Object.entries(properties).join();
+      if (!groups[key]) groups[key] = initFeature(feature, properties);
+
+      // Append this features buffers to the grouped feature
+      appendBuffers(groups[key].buffers, feature.buffers);
+    });
+
+    return Object.values(groups).map(makeTypedArrays);
+  };
+}
+
+function initFeature(template, renderProperties) {
+  const properties = Object.assign({}, renderProperties);
+  const buffers = Object.keys(template.buffers)
+    .reduce((d, k) => (d[k] = [], d), {});
+
+  return { properties, buffers };
+}
+
+function appendBuffers(buffers, newBuffers) {
+  const appendix = Object.assign({}, newBuffers);
+  if (buffers.indices) {
+    let indexShift = buffers.vertices.length / 2;
+    appendix.indices = newBuffers.indices.map(i => i + indexShift);
+  }
+  Object.keys(buffers).forEach(k => {
+    // NOTE: The 'obvious' buffers[k].push(...appendix[k]) fails with
+    //  the error "Maximum call stack size exceeded"
+    let base = buffers[k];
+    appendix[k].forEach(a => base.push(a));
   });
+}
+
+function makeTypedArrays(feature) {
+  const { properties, buffers } = feature;
+  // Note: modifying in place!
+  Object.keys(buffers).forEach(key => {
+    buffers[key] = (key === "indices")
+      ? new Uint16Array(buffers[key])
+      : new Float32Array(buffers[key]);
+  });
+  return feature;
 }
 
 function quickselect(arr, k, left, right, compare) {
@@ -5039,7 +5505,7 @@ class RBush {
         let node = this.data;
         const result = [];
 
-        if (!intersects(bbox, node)) return result;
+        if (!intersects$1(bbox, node)) return result;
 
         const toBBox = this.toBBox;
         const nodesToSearch = [];
@@ -5049,7 +5515,7 @@ class RBush {
                 const child = node.children[i];
                 const childBBox = node.leaf ? toBBox(child) : child;
 
-                if (intersects(bbox, childBBox)) {
+                if (intersects$1(bbox, childBBox)) {
                     if (node.leaf) result.push(child);
                     else if (contains(bbox, childBBox)) this._all(child, result);
                     else nodesToSearch.push(child);
@@ -5064,7 +5530,7 @@ class RBush {
     collides(bbox) {
         let node = this.data;
 
-        if (!intersects(bbox, node)) return false;
+        if (!intersects$1(bbox, node)) return false;
 
         const nodesToSearch = [];
         while (node) {
@@ -5072,7 +5538,7 @@ class RBush {
                 const child = node.children[i];
                 const childBBox = node.leaf ? this.toBBox(child) : child;
 
-                if (intersects(bbox, childBBox)) {
+                if (intersects$1(bbox, childBBox)) {
                     if (node.leaf || contains(bbox, childBBox)) return true;
                     nodesToSearch.push(child);
                 }
@@ -5496,7 +5962,7 @@ function contains(a, b) {
            b.maxY <= a.maxY;
 }
 
-function intersects(a, b) {
+function intersects$1(a, b) {
     return b.minX <= a.maxX &&
            b.minY <= a.maxY &&
            b.maxX >= a.minX &&
@@ -5534,1702 +6000,71 @@ function multiSelect(arr, left, right, n, compare) {
     }
 }
 
-function initSymbols({ parsedStyles, glyphEndpoint }) {
-  const getText = initText(parsedStyles);
-  const getGlyphs = initGlyphs(glyphEndpoint);
-  const shapeText = initShapers(parsedStyles);
+function initBufferConstructors(styles) {
+  const layerSerializers = styles
+    .reduce((d, s) => (d[s.id] = initLayerSerializer(s), d), {});
 
-  return function(layers, zoom) {
-    const textLayers = getText(layers, zoom);
-
-    return getGlyphs(textLayers)
-      .then(atlas => shapeText(textLayers, zoom, atlas));
-  };
-}
-
-function initShapers(styles) {
-  const shapers = styles
-    .filter(s => s.type === "symbol")
-    .reduce((d, s) => (d[s.id] = initShaping(s), d), {});
-
-  return function(textLayers, zoom, atlas) {
-    const shaped = Object.entries(textLayers).reduce((d, [id, layer]) => {
-      let { type, extent, features } = layer;
-      let mapped = features.map(feature => {
-        let { properties, geometry } = feature;
-        let buffers = shapers[id](feature, zoom, atlas);
-        if (buffers) return { properties, geometry, buffers };
-      }).filter(f => f !== undefined);
-
-      if (mapped.length) d[id] = { type, extent, features: mapped };
-      return d;
-    }, {});
-
+  return function(layers, tileCoords, atlas) {
     const tree = new RBush();
-    Object.values(shaped).reverse().forEach(layer => {
-      layer.features = layer.features.filter(f => collide(f, tree));
-    });
 
-    return { atlas: atlas.image, layers: shaped };
+    return Object.entries(layers)
+      .reverse() // Reverse order for collision checks
+      .map(([id, layer]) => {
+        let serialize = layerSerializers[id];
+        if (serialize) return serialize(layer, tileCoords, atlas, tree);
+      })
+      .reverse()
+      .reduce((d, l) => Object.assign(d, l), {});
   };
 }
 
-function collide(feature, tree) {
-  // NOTE: tree will be modified!!
+function initLayerSerializer(style) {
+  const { id, interactive } = style;
 
-  let { origins, bbox } = feature.buffers;
-  let [ x0, y0 ] = origins;
-  let box = {
-    minX: x0 + bbox[0],
-    minY: y0 + bbox[1],
-    maxX: x0 + bbox[2],
-    maxY: y0 + bbox[3],
+  const transform = initSerializer(style);
+
+  if (!transform) return;
+
+  const compressor = initFeatureGrouper(style);
+
+  return function(layer, tileCoords, atlas, tree) {
+    let { type, extent, features } = layer;
+
+    let transformed = features.map(feature => {
+      let { properties, geometry } = feature;
+      let buffers = transform(feature, tileCoords, atlas, tree);
+      if (buffers) return { properties, geometry, buffers };
+    }).filter(f => f !== undefined);
+
+    if (!transformed.length) return;
+
+    const compressed = compressor(transformed);
+    const newLayer = { type, extent, compressed };
+
+    if (interactive) newLayer.features = transformed
+      .map(({ properties, geometry }) => ({ properties, geometry }));
+
+    return { [id]: newLayer };
   };
-
-  if (tree.collides(box)) return false;
-
-  tree.insert(box);
-  return true; // TODO: drop feature if outside tile?
-}
-
-function parseCircle(feature) {
-  const points = flattenPoints(feature.geometry);
-  if (points) return { points };
-}
-
-function flattenPoints(geometry) {
-  const { type, coordinates } = geometry;
-
-  switch (type) {
-    case "Point":
-      return coordinates;
-    case "MultiPoint":
-      return coordinates.flat();
-    default:
-      return;
-  }
-}
-
-function parseLine(feature) {
-  const lines = flattenLines(feature.geometry);
-  if (lines) return { lines };
-}
-
-function flattenLines(geometry) {
-  let { type, coordinates } = geometry;
-
-  switch (type) {
-    case "LineString":
-      return flattenLineString(coordinates);
-    case "MultiLineString":
-      return coordinates.flatMap(flattenLineString);
-    case "Polygon":
-      return flattenPolygon(coordinates);
-    case "MultiPolygon":
-      return coordinates.flatMap(flattenPolygon);
-    default:
-      return;
-  }
-}
-
-function flattenLineString(line) {
-  return [
-    ...[...line[0], -2.0],
-    ...line.flatMap(([x, y]) => [x, y, 0.0]),
-    ...[...line[line.length - 1], -2.0]
-  ];
-}
-
-function flattenPolygon(rings) {
-  return rings.flatMap(flattenLinearRing);
-}
-
-function flattenLinearRing(ring) {
-  // Definition of linear ring:
-  // ring.length > 3 && ring[ring.length - 1] == ring[0]
-  return [
-    ...[...ring[ring.length - 2], -2.0],
-    ...ring.flatMap(([x, y]) => [x, y, 0.0]),
-    ...[...ring[1], -2.0]
-  ];
-}
-
-var earcut_1 = earcut;
-var default_1 = earcut;
-
-function earcut(data, holeIndices, dim) {
-
-    dim = dim || 2;
-
-    var hasHoles = holeIndices && holeIndices.length,
-        outerLen = hasHoles ? holeIndices[0] * dim : data.length,
-        outerNode = linkedList(data, 0, outerLen, dim, true),
-        triangles = [];
-
-    if (!outerNode || outerNode.next === outerNode.prev) return triangles;
-
-    var minX, minY, maxX, maxY, x, y, invSize;
-
-    if (hasHoles) outerNode = eliminateHoles(data, holeIndices, outerNode, dim);
-
-    // if the shape is not too simple, we'll use z-order curve hash later; calculate polygon bbox
-    if (data.length > 80 * dim) {
-        minX = maxX = data[0];
-        minY = maxY = data[1];
-
-        for (var i = dim; i < outerLen; i += dim) {
-            x = data[i];
-            y = data[i + 1];
-            if (x < minX) minX = x;
-            if (y < minY) minY = y;
-            if (x > maxX) maxX = x;
-            if (y > maxY) maxY = y;
-        }
-
-        // minX, minY and invSize are later used to transform coords into integers for z-order calculation
-        invSize = Math.max(maxX - minX, maxY - minY);
-        invSize = invSize !== 0 ? 1 / invSize : 0;
-    }
-
-    earcutLinked(outerNode, triangles, dim, minX, minY, invSize);
-
-    return triangles;
-}
-
-// create a circular doubly linked list from polygon points in the specified winding order
-function linkedList(data, start, end, dim, clockwise) {
-    var i, last;
-
-    if (clockwise === (signedArea(data, start, end, dim) > 0)) {
-        for (i = start; i < end; i += dim) last = insertNode(i, data[i], data[i + 1], last);
-    } else {
-        for (i = end - dim; i >= start; i -= dim) last = insertNode(i, data[i], data[i + 1], last);
-    }
-
-    if (last && equals(last, last.next)) {
-        removeNode(last);
-        last = last.next;
-    }
-
-    return last;
-}
-
-// eliminate colinear or duplicate points
-function filterPoints(start, end) {
-    if (!start) return start;
-    if (!end) end = start;
-
-    var p = start,
-        again;
-    do {
-        again = false;
-
-        if (!p.steiner && (equals(p, p.next) || area(p.prev, p, p.next) === 0)) {
-            removeNode(p);
-            p = end = p.prev;
-            if (p === p.next) break;
-            again = true;
-
-        } else {
-            p = p.next;
-        }
-    } while (again || p !== end);
-
-    return end;
-}
-
-// main ear slicing loop which triangulates a polygon (given as a linked list)
-function earcutLinked(ear, triangles, dim, minX, minY, invSize, pass) {
-    if (!ear) return;
-
-    // interlink polygon nodes in z-order
-    if (!pass && invSize) indexCurve(ear, minX, minY, invSize);
-
-    var stop = ear,
-        prev, next;
-
-    // iterate through ears, slicing them one by one
-    while (ear.prev !== ear.next) {
-        prev = ear.prev;
-        next = ear.next;
-
-        if (invSize ? isEarHashed(ear, minX, minY, invSize) : isEar(ear)) {
-            // cut off the triangle
-            triangles.push(prev.i / dim);
-            triangles.push(ear.i / dim);
-            triangles.push(next.i / dim);
-
-            removeNode(ear);
-
-            // skipping the next vertex leads to less sliver triangles
-            ear = next.next;
-            stop = next.next;
-
-            continue;
-        }
-
-        ear = next;
-
-        // if we looped through the whole remaining polygon and can't find any more ears
-        if (ear === stop) {
-            // try filtering points and slicing again
-            if (!pass) {
-                earcutLinked(filterPoints(ear), triangles, dim, minX, minY, invSize, 1);
-
-            // if this didn't work, try curing all small self-intersections locally
-            } else if (pass === 1) {
-                ear = cureLocalIntersections(filterPoints(ear), triangles, dim);
-                earcutLinked(ear, triangles, dim, minX, minY, invSize, 2);
-
-            // as a last resort, try splitting the remaining polygon into two
-            } else if (pass === 2) {
-                splitEarcut(ear, triangles, dim, minX, minY, invSize);
-            }
-
-            break;
-        }
-    }
-}
-
-// check whether a polygon node forms a valid ear with adjacent nodes
-function isEar(ear) {
-    var a = ear.prev,
-        b = ear,
-        c = ear.next;
-
-    if (area(a, b, c) >= 0) return false; // reflex, can't be an ear
-
-    // now make sure we don't have other points inside the potential ear
-    var p = ear.next.next;
-
-    while (p !== ear.prev) {
-        if (pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, p.x, p.y) &&
-            area(p.prev, p, p.next) >= 0) return false;
-        p = p.next;
-    }
-
-    return true;
-}
-
-function isEarHashed(ear, minX, minY, invSize) {
-    var a = ear.prev,
-        b = ear,
-        c = ear.next;
-
-    if (area(a, b, c) >= 0) return false; // reflex, can't be an ear
-
-    // triangle bbox; min & max are calculated like this for speed
-    var minTX = a.x < b.x ? (a.x < c.x ? a.x : c.x) : (b.x < c.x ? b.x : c.x),
-        minTY = a.y < b.y ? (a.y < c.y ? a.y : c.y) : (b.y < c.y ? b.y : c.y),
-        maxTX = a.x > b.x ? (a.x > c.x ? a.x : c.x) : (b.x > c.x ? b.x : c.x),
-        maxTY = a.y > b.y ? (a.y > c.y ? a.y : c.y) : (b.y > c.y ? b.y : c.y);
-
-    // z-order range for the current triangle bbox;
-    var minZ = zOrder(minTX, minTY, minX, minY, invSize),
-        maxZ = zOrder(maxTX, maxTY, minX, minY, invSize);
-
-    var p = ear.prevZ,
-        n = ear.nextZ;
-
-    // look for points inside the triangle in both directions
-    while (p && p.z >= minZ && n && n.z <= maxZ) {
-        if (p !== ear.prev && p !== ear.next &&
-            pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, p.x, p.y) &&
-            area(p.prev, p, p.next) >= 0) return false;
-        p = p.prevZ;
-
-        if (n !== ear.prev && n !== ear.next &&
-            pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, n.x, n.y) &&
-            area(n.prev, n, n.next) >= 0) return false;
-        n = n.nextZ;
-    }
-
-    // look for remaining points in decreasing z-order
-    while (p && p.z >= minZ) {
-        if (p !== ear.prev && p !== ear.next &&
-            pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, p.x, p.y) &&
-            area(p.prev, p, p.next) >= 0) return false;
-        p = p.prevZ;
-    }
-
-    // look for remaining points in increasing z-order
-    while (n && n.z <= maxZ) {
-        if (n !== ear.prev && n !== ear.next &&
-            pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, n.x, n.y) &&
-            area(n.prev, n, n.next) >= 0) return false;
-        n = n.nextZ;
-    }
-
-    return true;
-}
-
-// go through all polygon nodes and cure small local self-intersections
-function cureLocalIntersections(start, triangles, dim) {
-    var p = start;
-    do {
-        var a = p.prev,
-            b = p.next.next;
-
-        if (!equals(a, b) && intersects$1(a, p, p.next, b) && locallyInside(a, b) && locallyInside(b, a)) {
-
-            triangles.push(a.i / dim);
-            triangles.push(p.i / dim);
-            triangles.push(b.i / dim);
-
-            // remove two nodes involved
-            removeNode(p);
-            removeNode(p.next);
-
-            p = start = b;
-        }
-        p = p.next;
-    } while (p !== start);
-
-    return filterPoints(p);
-}
-
-// try splitting polygon into two and triangulate them independently
-function splitEarcut(start, triangles, dim, minX, minY, invSize) {
-    // look for a valid diagonal that divides the polygon into two
-    var a = start;
-    do {
-        var b = a.next.next;
-        while (b !== a.prev) {
-            if (a.i !== b.i && isValidDiagonal(a, b)) {
-                // split the polygon in two by the diagonal
-                var c = splitPolygon(a, b);
-
-                // filter colinear points around the cuts
-                a = filterPoints(a, a.next);
-                c = filterPoints(c, c.next);
-
-                // run earcut on each half
-                earcutLinked(a, triangles, dim, minX, minY, invSize);
-                earcutLinked(c, triangles, dim, minX, minY, invSize);
-                return;
-            }
-            b = b.next;
-        }
-        a = a.next;
-    } while (a !== start);
-}
-
-// link every hole into the outer loop, producing a single-ring polygon without holes
-function eliminateHoles(data, holeIndices, outerNode, dim) {
-    var queue = [],
-        i, len, start, end, list;
-
-    for (i = 0, len = holeIndices.length; i < len; i++) {
-        start = holeIndices[i] * dim;
-        end = i < len - 1 ? holeIndices[i + 1] * dim : data.length;
-        list = linkedList(data, start, end, dim, false);
-        if (list === list.next) list.steiner = true;
-        queue.push(getLeftmost(list));
-    }
-
-    queue.sort(compareX);
-
-    // process holes from left to right
-    for (i = 0; i < queue.length; i++) {
-        eliminateHole(queue[i], outerNode);
-        outerNode = filterPoints(outerNode, outerNode.next);
-    }
-
-    return outerNode;
-}
-
-function compareX(a, b) {
-    return a.x - b.x;
-}
-
-// find a bridge between vertices that connects hole with an outer ring and and link it
-function eliminateHole(hole, outerNode) {
-    outerNode = findHoleBridge(hole, outerNode);
-    if (outerNode) {
-        var b = splitPolygon(outerNode, hole);
-
-        // filter collinear points around the cuts
-        filterPoints(outerNode, outerNode.next);
-        filterPoints(b, b.next);
-    }
-}
-
-// David Eberly's algorithm for finding a bridge between hole and outer polygon
-function findHoleBridge(hole, outerNode) {
-    var p = outerNode,
-        hx = hole.x,
-        hy = hole.y,
-        qx = -Infinity,
-        m;
-
-    // find a segment intersected by a ray from the hole's leftmost point to the left;
-    // segment's endpoint with lesser x will be potential connection point
-    do {
-        if (hy <= p.y && hy >= p.next.y && p.next.y !== p.y) {
-            var x = p.x + (hy - p.y) * (p.next.x - p.x) / (p.next.y - p.y);
-            if (x <= hx && x > qx) {
-                qx = x;
-                if (x === hx) {
-                    if (hy === p.y) return p;
-                    if (hy === p.next.y) return p.next;
-                }
-                m = p.x < p.next.x ? p : p.next;
-            }
-        }
-        p = p.next;
-    } while (p !== outerNode);
-
-    if (!m) return null;
-
-    if (hx === qx) return m; // hole touches outer segment; pick leftmost endpoint
-
-    // look for points inside the triangle of hole point, segment intersection and endpoint;
-    // if there are no points found, we have a valid connection;
-    // otherwise choose the point of the minimum angle with the ray as connection point
-
-    var stop = m,
-        mx = m.x,
-        my = m.y,
-        tanMin = Infinity,
-        tan;
-
-    p = m;
-
-    do {
-        if (hx >= p.x && p.x >= mx && hx !== p.x &&
-                pointInTriangle(hy < my ? hx : qx, hy, mx, my, hy < my ? qx : hx, hy, p.x, p.y)) {
-
-            tan = Math.abs(hy - p.y) / (hx - p.x); // tangential
-
-            if (locallyInside(p, hole) &&
-                (tan < tanMin || (tan === tanMin && (p.x > m.x || (p.x === m.x && sectorContainsSector(m, p)))))) {
-                m = p;
-                tanMin = tan;
-            }
-        }
-
-        p = p.next;
-    } while (p !== stop);
-
-    return m;
-}
-
-// whether sector in vertex m contains sector in vertex p in the same coordinates
-function sectorContainsSector(m, p) {
-    return area(m.prev, m, p.prev) < 0 && area(p.next, m, m.next) < 0;
-}
-
-// interlink polygon nodes in z-order
-function indexCurve(start, minX, minY, invSize) {
-    var p = start;
-    do {
-        if (p.z === null) p.z = zOrder(p.x, p.y, minX, minY, invSize);
-        p.prevZ = p.prev;
-        p.nextZ = p.next;
-        p = p.next;
-    } while (p !== start);
-
-    p.prevZ.nextZ = null;
-    p.prevZ = null;
-
-    sortLinked(p);
-}
-
-// Simon Tatham's linked list merge sort algorithm
-// http://www.chiark.greenend.org.uk/~sgtatham/algorithms/listsort.html
-function sortLinked(list) {
-    var i, p, q, e, tail, numMerges, pSize, qSize,
-        inSize = 1;
-
-    do {
-        p = list;
-        list = null;
-        tail = null;
-        numMerges = 0;
-
-        while (p) {
-            numMerges++;
-            q = p;
-            pSize = 0;
-            for (i = 0; i < inSize; i++) {
-                pSize++;
-                q = q.nextZ;
-                if (!q) break;
-            }
-            qSize = inSize;
-
-            while (pSize > 0 || (qSize > 0 && q)) {
-
-                if (pSize !== 0 && (qSize === 0 || !q || p.z <= q.z)) {
-                    e = p;
-                    p = p.nextZ;
-                    pSize--;
-                } else {
-                    e = q;
-                    q = q.nextZ;
-                    qSize--;
-                }
-
-                if (tail) tail.nextZ = e;
-                else list = e;
-
-                e.prevZ = tail;
-                tail = e;
-            }
-
-            p = q;
-        }
-
-        tail.nextZ = null;
-        inSize *= 2;
-
-    } while (numMerges > 1);
-
-    return list;
-}
-
-// z-order of a point given coords and inverse of the longer side of data bbox
-function zOrder(x, y, minX, minY, invSize) {
-    // coords are transformed into non-negative 15-bit integer range
-    x = 32767 * (x - minX) * invSize;
-    y = 32767 * (y - minY) * invSize;
-
-    x = (x | (x << 8)) & 0x00FF00FF;
-    x = (x | (x << 4)) & 0x0F0F0F0F;
-    x = (x | (x << 2)) & 0x33333333;
-    x = (x | (x << 1)) & 0x55555555;
-
-    y = (y | (y << 8)) & 0x00FF00FF;
-    y = (y | (y << 4)) & 0x0F0F0F0F;
-    y = (y | (y << 2)) & 0x33333333;
-    y = (y | (y << 1)) & 0x55555555;
-
-    return x | (y << 1);
-}
-
-// find the leftmost node of a polygon ring
-function getLeftmost(start) {
-    var p = start,
-        leftmost = start;
-    do {
-        if (p.x < leftmost.x || (p.x === leftmost.x && p.y < leftmost.y)) leftmost = p;
-        p = p.next;
-    } while (p !== start);
-
-    return leftmost;
-}
-
-// check if a point lies within a convex triangle
-function pointInTriangle(ax, ay, bx, by, cx, cy, px, py) {
-    return (cx - px) * (ay - py) - (ax - px) * (cy - py) >= 0 &&
-           (ax - px) * (by - py) - (bx - px) * (ay - py) >= 0 &&
-           (bx - px) * (cy - py) - (cx - px) * (by - py) >= 0;
-}
-
-// check if a diagonal between two polygon nodes is valid (lies in polygon interior)
-function isValidDiagonal(a, b) {
-    return a.next.i !== b.i && a.prev.i !== b.i && !intersectsPolygon(a, b) && // dones't intersect other edges
-           (locallyInside(a, b) && locallyInside(b, a) && middleInside(a, b) && // locally visible
-            (area(a.prev, a, b.prev) || area(a, b.prev, b)) || // does not create opposite-facing sectors
-            equals(a, b) && area(a.prev, a, a.next) > 0 && area(b.prev, b, b.next) > 0); // special zero-length case
-}
-
-// signed area of a triangle
-function area(p, q, r) {
-    return (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
-}
-
-// check if two points are equal
-function equals(p1, p2) {
-    return p1.x === p2.x && p1.y === p2.y;
-}
-
-// check if two segments intersect
-function intersects$1(p1, q1, p2, q2) {
-    var o1 = sign(area(p1, q1, p2));
-    var o2 = sign(area(p1, q1, q2));
-    var o3 = sign(area(p2, q2, p1));
-    var o4 = sign(area(p2, q2, q1));
-
-    if (o1 !== o2 && o3 !== o4) return true; // general case
-
-    if (o1 === 0 && onSegment(p1, p2, q1)) return true; // p1, q1 and p2 are collinear and p2 lies on p1q1
-    if (o2 === 0 && onSegment(p1, q2, q1)) return true; // p1, q1 and q2 are collinear and q2 lies on p1q1
-    if (o3 === 0 && onSegment(p2, p1, q2)) return true; // p2, q2 and p1 are collinear and p1 lies on p2q2
-    if (o4 === 0 && onSegment(p2, q1, q2)) return true; // p2, q2 and q1 are collinear and q1 lies on p2q2
-
-    return false;
-}
-
-// for collinear points p, q, r, check if point q lies on segment pr
-function onSegment(p, q, r) {
-    return q.x <= Math.max(p.x, r.x) && q.x >= Math.min(p.x, r.x) && q.y <= Math.max(p.y, r.y) && q.y >= Math.min(p.y, r.y);
-}
-
-function sign(num) {
-    return num > 0 ? 1 : num < 0 ? -1 : 0;
-}
-
-// check if a polygon diagonal intersects any polygon segments
-function intersectsPolygon(a, b) {
-    var p = a;
-    do {
-        if (p.i !== a.i && p.next.i !== a.i && p.i !== b.i && p.next.i !== b.i &&
-                intersects$1(p, p.next, a, b)) return true;
-        p = p.next;
-    } while (p !== a);
-
-    return false;
-}
-
-// check if a polygon diagonal is locally inside the polygon
-function locallyInside(a, b) {
-    return area(a.prev, a, a.next) < 0 ?
-        area(a, b, a.next) >= 0 && area(a, a.prev, b) >= 0 :
-        area(a, b, a.prev) < 0 || area(a, a.next, b) < 0;
-}
-
-// check if the middle point of a polygon diagonal is inside the polygon
-function middleInside(a, b) {
-    var p = a,
-        inside = false,
-        px = (a.x + b.x) / 2,
-        py = (a.y + b.y) / 2;
-    do {
-        if (((p.y > py) !== (p.next.y > py)) && p.next.y !== p.y &&
-                (px < (p.next.x - p.x) * (py - p.y) / (p.next.y - p.y) + p.x))
-            inside = !inside;
-        p = p.next;
-    } while (p !== a);
-
-    return inside;
-}
-
-// link two polygon vertices with a bridge; if the vertices belong to the same ring, it splits polygon into two;
-// if one belongs to the outer ring and another to a hole, it merges it into a single ring
-function splitPolygon(a, b) {
-    var a2 = new Node(a.i, a.x, a.y),
-        b2 = new Node(b.i, b.x, b.y),
-        an = a.next,
-        bp = b.prev;
-
-    a.next = b;
-    b.prev = a;
-
-    a2.next = an;
-    an.prev = a2;
-
-    b2.next = a2;
-    a2.prev = b2;
-
-    bp.next = b2;
-    b2.prev = bp;
-
-    return b2;
-}
-
-// create a node and optionally link it with previous one (in a circular doubly linked list)
-function insertNode(i, x, y, last) {
-    var p = new Node(i, x, y);
-
-    if (!last) {
-        p.prev = p;
-        p.next = p;
-
-    } else {
-        p.next = last.next;
-        p.prev = last;
-        last.next.prev = p;
-        last.next = p;
-    }
-    return p;
-}
-
-function removeNode(p) {
-    p.next.prev = p.prev;
-    p.prev.next = p.next;
-
-    if (p.prevZ) p.prevZ.nextZ = p.nextZ;
-    if (p.nextZ) p.nextZ.prevZ = p.prevZ;
-}
-
-function Node(i, x, y) {
-    // vertex index in coordinates array
-    this.i = i;
-
-    // vertex coordinates
-    this.x = x;
-    this.y = y;
-
-    // previous and next vertex nodes in a polygon ring
-    this.prev = null;
-    this.next = null;
-
-    // z-order curve value
-    this.z = null;
-
-    // previous and next nodes in z-order
-    this.prevZ = null;
-    this.nextZ = null;
-
-    // indicates whether this is a steiner point
-    this.steiner = false;
-}
-
-// return a percentage difference between the polygon area and its triangulation area;
-// used to verify correctness of triangulation
-earcut.deviation = function (data, holeIndices, dim, triangles) {
-    var hasHoles = holeIndices && holeIndices.length;
-    var outerLen = hasHoles ? holeIndices[0] * dim : data.length;
-
-    var polygonArea = Math.abs(signedArea(data, 0, outerLen, dim));
-    if (hasHoles) {
-        for (var i = 0, len = holeIndices.length; i < len; i++) {
-            var start = holeIndices[i] * dim;
-            var end = i < len - 1 ? holeIndices[i + 1] * dim : data.length;
-            polygonArea -= Math.abs(signedArea(data, start, end, dim));
-        }
-    }
-
-    var trianglesArea = 0;
-    for (i = 0; i < triangles.length; i += 3) {
-        var a = triangles[i] * dim;
-        var b = triangles[i + 1] * dim;
-        var c = triangles[i + 2] * dim;
-        trianglesArea += Math.abs(
-            (data[a] - data[c]) * (data[b + 1] - data[a + 1]) -
-            (data[a] - data[b]) * (data[c + 1] - data[a + 1]));
-    }
-
-    return polygonArea === 0 && trianglesArea === 0 ? 0 :
-        Math.abs((trianglesArea - polygonArea) / polygonArea);
-};
-
-function signedArea(data, start, end, dim) {
-    var sum = 0;
-    for (var i = start, j = end - dim; i < end; i += dim) {
-        sum += (data[j] - data[i]) * (data[i + 1] + data[j + 1]);
-        j = i;
-    }
-    return sum;
-}
-
-// turn a polygon in a multi-dimensional array form (e.g. as in GeoJSON) into a form Earcut accepts
-earcut.flatten = function (data) {
-    var dim = data[0][0].length,
-        result = {vertices: [], holes: [], dimensions: dim},
-        holeIndex = 0;
-
-    for (var i = 0; i < data.length; i++) {
-        for (var j = 0; j < data[i].length; j++) {
-            for (var d = 0; d < dim; d++) result.vertices.push(data[i][j][d]);
-        }
-        if (i > 0) {
-            holeIndex += data[i - 1].length;
-            result.holes.push(holeIndex);
-        }
-    }
-    return result;
-};
-earcut_1.default = default_1;
-
-function parseFill(feature) {
-  const triangles = triangulate(feature.geometry);
-
-  if (triangles) return {
-    vertices: triangles.vertices,
-    indices: triangles.indices,
-    lines: flattenLines(feature.geometry), // For rendering the outline
-  };
-}
-
-function triangulate(geometry) {
-  const { type, coordinates } = geometry;
-
-  switch (type) {
-    case "Polygon":
-      return indexPolygon(coordinates);
-    case "MultiPolygon":
-      return coordinates.map(indexPolygon).reduce((acc, cur) => {
-        let indexShift = acc.vertices.length / 2;
-        acc.vertices.push(...cur.vertices);
-        acc.indices.push(...cur.indices.map(h => h + indexShift));
-        return acc;
-      });
-    default:
-      return;
-  }
-}
-
-function indexPolygon(coords) {
-  let { vertices, holes, dimensions } = earcut_1.flatten(coords);
-  let indices = earcut_1(vertices, holes, dimensions);
-  return { vertices, indices };
-}
-
-const serializers = {
-  circle: parseCircle,
-  line: parseLine,
-  fill: parseFill,
-};
-
-function initFeatureGrouper(style) {
-  // Find the names of the feature properties that affect rendering
-  const renderPropertyNames = Object.values(style.paint)
-    .filter(styleFunc => styleFunc.type === "property")
-    .map(styleFunc => styleFunc.property);
-
-  return function(features) {
-    // Group features that will be styled the same
-    const groups = {};
-    features.forEach(feature => {
-      // Keep only the properties relevant to rendering
-      let properties = renderPropertyNames
-        .reduce((d, k) => (d[k] = feature.properties[k], d), {});
-
-      // Look up the appropriate group, or create it if it doesn't exist
-      let key = Object.entries(properties).join();
-      if (!groups[key]) groups[key] = initFeature(feature, properties);
-
-      // Append this features buffers to the grouped feature
-      appendBuffers(groups[key].buffers, feature.buffers);
-    });
-
-    return Object.values(groups).map(makeTypedArrays);
-  };
-}
-
-function initFeature(template, renderProperties) {
-  const properties = Object.assign({}, renderProperties);
-  const buffers = Object.keys(template.buffers)
-    .reduce((d, k) => (d[k] = [], d), {});
-
-  return { properties, buffers };
-}
-
-function appendBuffers(buffers, newBuffers) {
-  const appendix = Object.assign({}, newBuffers);
-  if (buffers.indices) {
-    let indexShift = buffers.vertices.length / 2;
-    appendix.indices = newBuffers.indices.map(i => i + indexShift);
-  }
-  Object.keys(buffers).forEach(k => {
-    // NOTE: The 'obvious' buffers[k].push(...appendix[k]) fails with
-    //  the error "Maximum call stack size exceeded"
-    let base = buffers[k];
-    appendix[k].forEach(a => base.push(a));
-  });
-}
-
-function makeTypedArrays(feature) {
-  const { properties, buffers } = feature;
-  // Note: modifying in place!
-  Object.keys(buffers).forEach(key => {
-    buffers[key] = (key === "indices")
-      ? new Uint16Array(buffers[key])
-      : new Float32Array(buffers[key]);
-  });
-  return feature;
 }
 
 function initSourceProcessor({ styles, glyphEndpoint }) {
   const parsedStyles = styles.map(getStyleFuncs);
 
   const sourceFilter = initSourceFilter(parsedStyles);
-  const process = initProcessor(parsedStyles);
-  const processSymbols = initSymbols({ parsedStyles, glyphEndpoint });
-  const compressors = parsedStyles
-    .reduce((d, s) => (d[s.id] = initCompressor(s), d), {});
+  const getAtlas = initAtlasGetter({ parsedStyles, glyphEndpoint });
+  const process = initBufferConstructors(parsedStyles);
 
-  return function(source, zoom) {
-    const rawLayers = sourceFilter(source, zoom);
+  return function(source, tileCoords) {
+    const rawLayers = sourceFilter(source, tileCoords.z);
 
-    const mainTask = process(rawLayers);
-    const symbolTask = processSymbols(rawLayers, zoom);
+    return getAtlas(rawLayers, tileCoords.z).then(atlas => {
+      const layers = process(rawLayers, tileCoords, atlas);
 
-    return Promise.all([mainTask, symbolTask]).then(([layers, symbols]) => {
-      // Merge symbol layers into layers dictionary
-      Object.assign(layers, symbols.layers);
-      // Compress features. TODO: don't overwrite layers object!
-      Object.entries(layers).forEach(([id, layer]) => {
-        layers[id] = compressors[id](layer);
-      });
-      // TODO: what if there is no atlas?
       // Note: atlas.data.buffer is a Transferable
-      return { atlas: symbols.atlas, layers };
+      return { atlas: atlas.image, layers };
     });
   };
-}
-
-function initProcessor(styles) {
-  const transforms = styles
-    .reduce((d, s) => (d[s.id] = serializers[s.type], d), {});
-
-  return function(layers) {
-    const data = Object.entries(layers).reduce((d, [id, layer]) => {
-      let transform = transforms[id];
-      if (!transform) return d;
-
-      let { type, extent, features } = layer;
-      let mapped = features.map(feature => {
-        let { properties, geometry } = feature;
-        let buffers = transform(feature);
-        if (buffers) return { properties, geometry, buffers };
-      }).filter(f => f !== undefined);
-
-      if (mapped.length) d[id] = { type, extent, features: mapped };
-      return d;
-    }, {});
-
-    return Promise.resolve(data);
-  }
-}
-
-function initCompressor(style) {
-  const { id, interactive } = style;
-  const grouper = initFeatureGrouper(style);
-
-  return function(layer) {
-    const { type, extent, features } = layer;
-    const compressed = grouper(features);
-    const newLayer = { type, extent, compressed };
-
-    if (interactive) newLayer.features = features
-      .map(({ properties, geometry }) => ({ properties, geometry }));
-
-    return newLayer;
-  };
-}
-
-var read$1 = function (buffer, offset, isLE, mLen, nBytes) {
-  var e, m;
-  var eLen = (nBytes * 8) - mLen - 1;
-  var eMax = (1 << eLen) - 1;
-  var eBias = eMax >> 1;
-  var nBits = -7;
-  var i = isLE ? (nBytes - 1) : 0;
-  var d = isLE ? -1 : 1;
-  var s = buffer[offset + i];
-
-  i += d;
-
-  e = s & ((1 << (-nBits)) - 1);
-  s >>= (-nBits);
-  nBits += eLen;
-  for (; nBits > 0; e = (e * 256) + buffer[offset + i], i += d, nBits -= 8) {}
-
-  m = e & ((1 << (-nBits)) - 1);
-  e >>= (-nBits);
-  nBits += mLen;
-  for (; nBits > 0; m = (m * 256) + buffer[offset + i], i += d, nBits -= 8) {}
-
-  if (e === 0) {
-    e = 1 - eBias;
-  } else if (e === eMax) {
-    return m ? NaN : ((s ? -1 : 1) * Infinity)
-  } else {
-    m = m + Math.pow(2, mLen);
-    e = e - eBias;
-  }
-  return (s ? -1 : 1) * m * Math.pow(2, e - mLen)
-};
-
-var write$1 = function (buffer, value, offset, isLE, mLen, nBytes) {
-  var e, m, c;
-  var eLen = (nBytes * 8) - mLen - 1;
-  var eMax = (1 << eLen) - 1;
-  var eBias = eMax >> 1;
-  var rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0);
-  var i = isLE ? 0 : (nBytes - 1);
-  var d = isLE ? 1 : -1;
-  var s = value < 0 || (value === 0 && 1 / value < 0) ? 1 : 0;
-
-  value = Math.abs(value);
-
-  if (isNaN(value) || value === Infinity) {
-    m = isNaN(value) ? 1 : 0;
-    e = eMax;
-  } else {
-    e = Math.floor(Math.log(value) / Math.LN2);
-    if (value * (c = Math.pow(2, -e)) < 1) {
-      e--;
-      c *= 2;
-    }
-    if (e + eBias >= 1) {
-      value += rt / c;
-    } else {
-      value += rt * Math.pow(2, 1 - eBias);
-    }
-    if (value * c >= 2) {
-      e++;
-      c /= 2;
-    }
-
-    if (e + eBias >= eMax) {
-      m = 0;
-      e = eMax;
-    } else if (e + eBias >= 1) {
-      m = ((value * c) - 1) * Math.pow(2, mLen);
-      e = e + eBias;
-    } else {
-      m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen);
-      e = 0;
-    }
-  }
-
-  for (; mLen >= 8; buffer[offset + i] = m & 0xff, i += d, m /= 256, mLen -= 8) {}
-
-  e = (e << mLen) | m;
-  eLen += mLen;
-  for (; eLen > 0; buffer[offset + i] = e & 0xff, i += d, e /= 256, eLen -= 8) {}
-
-  buffer[offset + i - d] |= s * 128;
-};
-
-var ieee754$1 = {
-	read: read$1,
-	write: write$1
-};
-
-var pbf$1 = Pbf$1;
-
-
-
-function Pbf$1(buf) {
-    this.buf = ArrayBuffer.isView && ArrayBuffer.isView(buf) ? buf : new Uint8Array(buf || 0);
-    this.pos = 0;
-    this.type = 0;
-    this.length = this.buf.length;
-}
-
-Pbf$1.Varint  = 0; // varint: int32, int64, uint32, uint64, sint32, sint64, bool, enum
-Pbf$1.Fixed64 = 1; // 64-bit: double, fixed64, sfixed64
-Pbf$1.Bytes   = 2; // length-delimited: string, bytes, embedded messages, packed repeated fields
-Pbf$1.Fixed32 = 5; // 32-bit: float, fixed32, sfixed32
-
-var SHIFT_LEFT_32$1 = (1 << 16) * (1 << 16),
-    SHIFT_RIGHT_32$1 = 1 / SHIFT_LEFT_32$1;
-
-// Threshold chosen based on both benchmarking and knowledge about browser string
-// data structures (which currently switch structure types at 12 bytes or more)
-var TEXT_DECODER_MIN_LENGTH$1 = 12;
-var utf8TextDecoder$1 = typeof TextDecoder === 'undefined' ? null : new TextDecoder('utf8');
-
-Pbf$1.prototype = {
-
-    destroy: function() {
-        this.buf = null;
-    },
-
-    // === READING =================================================================
-
-    readFields: function(readField, result, end) {
-        end = end || this.length;
-
-        while (this.pos < end) {
-            var val = this.readVarint(),
-                tag = val >> 3,
-                startPos = this.pos;
-
-            this.type = val & 0x7;
-            readField(tag, result, this);
-
-            if (this.pos === startPos) this.skip(val);
-        }
-        return result;
-    },
-
-    readMessage: function(readField, result) {
-        return this.readFields(readField, result, this.readVarint() + this.pos);
-    },
-
-    readFixed32: function() {
-        var val = readUInt32$1(this.buf, this.pos);
-        this.pos += 4;
-        return val;
-    },
-
-    readSFixed32: function() {
-        var val = readInt32$1(this.buf, this.pos);
-        this.pos += 4;
-        return val;
-    },
-
-    // 64-bit int handling is based on github.com/dpw/node-buffer-more-ints (MIT-licensed)
-
-    readFixed64: function() {
-        var val = readUInt32$1(this.buf, this.pos) + readUInt32$1(this.buf, this.pos + 4) * SHIFT_LEFT_32$1;
-        this.pos += 8;
-        return val;
-    },
-
-    readSFixed64: function() {
-        var val = readUInt32$1(this.buf, this.pos) + readInt32$1(this.buf, this.pos + 4) * SHIFT_LEFT_32$1;
-        this.pos += 8;
-        return val;
-    },
-
-    readFloat: function() {
-        var val = ieee754$1.read(this.buf, this.pos, true, 23, 4);
-        this.pos += 4;
-        return val;
-    },
-
-    readDouble: function() {
-        var val = ieee754$1.read(this.buf, this.pos, true, 52, 8);
-        this.pos += 8;
-        return val;
-    },
-
-    readVarint: function(isSigned) {
-        var buf = this.buf,
-            val, b;
-
-        b = buf[this.pos++]; val  =  b & 0x7f;        if (b < 0x80) return val;
-        b = buf[this.pos++]; val |= (b & 0x7f) << 7;  if (b < 0x80) return val;
-        b = buf[this.pos++]; val |= (b & 0x7f) << 14; if (b < 0x80) return val;
-        b = buf[this.pos++]; val |= (b & 0x7f) << 21; if (b < 0x80) return val;
-        b = buf[this.pos];   val |= (b & 0x0f) << 28;
-
-        return readVarintRemainder$1(val, isSigned, this);
-    },
-
-    readVarint64: function() { // for compatibility with v2.0.1
-        return this.readVarint(true);
-    },
-
-    readSVarint: function() {
-        var num = this.readVarint();
-        return num % 2 === 1 ? (num + 1) / -2 : num / 2; // zigzag encoding
-    },
-
-    readBoolean: function() {
-        return Boolean(this.readVarint());
-    },
-
-    readString: function() {
-        var end = this.readVarint() + this.pos;
-        var pos = this.pos;
-        this.pos = end;
-
-        if (end - pos >= TEXT_DECODER_MIN_LENGTH$1 && utf8TextDecoder$1) {
-            // longer strings are fast with the built-in browser TextDecoder API
-            return readUtf8TextDecoder$1(this.buf, pos, end);
-        }
-        // short strings are fast with our custom implementation
-        return readUtf8$1(this.buf, pos, end);
-    },
-
-    readBytes: function() {
-        var end = this.readVarint() + this.pos,
-            buffer = this.buf.subarray(this.pos, end);
-        this.pos = end;
-        return buffer;
-    },
-
-    // verbose for performance reasons; doesn't affect gzipped size
-
-    readPackedVarint: function(arr, isSigned) {
-        if (this.type !== Pbf$1.Bytes) return arr.push(this.readVarint(isSigned));
-        var end = readPackedEnd$1(this);
-        arr = arr || [];
-        while (this.pos < end) arr.push(this.readVarint(isSigned));
-        return arr;
-    },
-    readPackedSVarint: function(arr) {
-        if (this.type !== Pbf$1.Bytes) return arr.push(this.readSVarint());
-        var end = readPackedEnd$1(this);
-        arr = arr || [];
-        while (this.pos < end) arr.push(this.readSVarint());
-        return arr;
-    },
-    readPackedBoolean: function(arr) {
-        if (this.type !== Pbf$1.Bytes) return arr.push(this.readBoolean());
-        var end = readPackedEnd$1(this);
-        arr = arr || [];
-        while (this.pos < end) arr.push(this.readBoolean());
-        return arr;
-    },
-    readPackedFloat: function(arr) {
-        if (this.type !== Pbf$1.Bytes) return arr.push(this.readFloat());
-        var end = readPackedEnd$1(this);
-        arr = arr || [];
-        while (this.pos < end) arr.push(this.readFloat());
-        return arr;
-    },
-    readPackedDouble: function(arr) {
-        if (this.type !== Pbf$1.Bytes) return arr.push(this.readDouble());
-        var end = readPackedEnd$1(this);
-        arr = arr || [];
-        while (this.pos < end) arr.push(this.readDouble());
-        return arr;
-    },
-    readPackedFixed32: function(arr) {
-        if (this.type !== Pbf$1.Bytes) return arr.push(this.readFixed32());
-        var end = readPackedEnd$1(this);
-        arr = arr || [];
-        while (this.pos < end) arr.push(this.readFixed32());
-        return arr;
-    },
-    readPackedSFixed32: function(arr) {
-        if (this.type !== Pbf$1.Bytes) return arr.push(this.readSFixed32());
-        var end = readPackedEnd$1(this);
-        arr = arr || [];
-        while (this.pos < end) arr.push(this.readSFixed32());
-        return arr;
-    },
-    readPackedFixed64: function(arr) {
-        if (this.type !== Pbf$1.Bytes) return arr.push(this.readFixed64());
-        var end = readPackedEnd$1(this);
-        arr = arr || [];
-        while (this.pos < end) arr.push(this.readFixed64());
-        return arr;
-    },
-    readPackedSFixed64: function(arr) {
-        if (this.type !== Pbf$1.Bytes) return arr.push(this.readSFixed64());
-        var end = readPackedEnd$1(this);
-        arr = arr || [];
-        while (this.pos < end) arr.push(this.readSFixed64());
-        return arr;
-    },
-
-    skip: function(val) {
-        var type = val & 0x7;
-        if (type === Pbf$1.Varint) while (this.buf[this.pos++] > 0x7f) {}
-        else if (type === Pbf$1.Bytes) this.pos = this.readVarint() + this.pos;
-        else if (type === Pbf$1.Fixed32) this.pos += 4;
-        else if (type === Pbf$1.Fixed64) this.pos += 8;
-        else throw new Error('Unimplemented type: ' + type);
-    },
-
-    // === WRITING =================================================================
-
-    writeTag: function(tag, type) {
-        this.writeVarint((tag << 3) | type);
-    },
-
-    realloc: function(min) {
-        var length = this.length || 16;
-
-        while (length < this.pos + min) length *= 2;
-
-        if (length !== this.length) {
-            var buf = new Uint8Array(length);
-            buf.set(this.buf);
-            this.buf = buf;
-            this.length = length;
-        }
-    },
-
-    finish: function() {
-        this.length = this.pos;
-        this.pos = 0;
-        return this.buf.subarray(0, this.length);
-    },
-
-    writeFixed32: function(val) {
-        this.realloc(4);
-        writeInt32$1(this.buf, val, this.pos);
-        this.pos += 4;
-    },
-
-    writeSFixed32: function(val) {
-        this.realloc(4);
-        writeInt32$1(this.buf, val, this.pos);
-        this.pos += 4;
-    },
-
-    writeFixed64: function(val) {
-        this.realloc(8);
-        writeInt32$1(this.buf, val & -1, this.pos);
-        writeInt32$1(this.buf, Math.floor(val * SHIFT_RIGHT_32$1), this.pos + 4);
-        this.pos += 8;
-    },
-
-    writeSFixed64: function(val) {
-        this.realloc(8);
-        writeInt32$1(this.buf, val & -1, this.pos);
-        writeInt32$1(this.buf, Math.floor(val * SHIFT_RIGHT_32$1), this.pos + 4);
-        this.pos += 8;
-    },
-
-    writeVarint: function(val) {
-        val = +val || 0;
-
-        if (val > 0xfffffff || val < 0) {
-            writeBigVarint$1(val, this);
-            return;
-        }
-
-        this.realloc(4);
-
-        this.buf[this.pos++] =           val & 0x7f  | (val > 0x7f ? 0x80 : 0); if (val <= 0x7f) return;
-        this.buf[this.pos++] = ((val >>>= 7) & 0x7f) | (val > 0x7f ? 0x80 : 0); if (val <= 0x7f) return;
-        this.buf[this.pos++] = ((val >>>= 7) & 0x7f) | (val > 0x7f ? 0x80 : 0); if (val <= 0x7f) return;
-        this.buf[this.pos++] =   (val >>> 7) & 0x7f;
-    },
-
-    writeSVarint: function(val) {
-        this.writeVarint(val < 0 ? -val * 2 - 1 : val * 2);
-    },
-
-    writeBoolean: function(val) {
-        this.writeVarint(Boolean(val));
-    },
-
-    writeString: function(str) {
-        str = String(str);
-        this.realloc(str.length * 4);
-
-        this.pos++; // reserve 1 byte for short string length
-
-        var startPos = this.pos;
-        // write the string directly to the buffer and see how much was written
-        this.pos = writeUtf8$1(this.buf, str, this.pos);
-        var len = this.pos - startPos;
-
-        if (len >= 0x80) makeRoomForExtraLength$1(startPos, len, this);
-
-        // finally, write the message length in the reserved place and restore the position
-        this.pos = startPos - 1;
-        this.writeVarint(len);
-        this.pos += len;
-    },
-
-    writeFloat: function(val) {
-        this.realloc(4);
-        ieee754$1.write(this.buf, val, this.pos, true, 23, 4);
-        this.pos += 4;
-    },
-
-    writeDouble: function(val) {
-        this.realloc(8);
-        ieee754$1.write(this.buf, val, this.pos, true, 52, 8);
-        this.pos += 8;
-    },
-
-    writeBytes: function(buffer) {
-        var len = buffer.length;
-        this.writeVarint(len);
-        this.realloc(len);
-        for (var i = 0; i < len; i++) this.buf[this.pos++] = buffer[i];
-    },
-
-    writeRawMessage: function(fn, obj) {
-        this.pos++; // reserve 1 byte for short message length
-
-        // write the message directly to the buffer and see how much was written
-        var startPos = this.pos;
-        fn(obj, this);
-        var len = this.pos - startPos;
-
-        if (len >= 0x80) makeRoomForExtraLength$1(startPos, len, this);
-
-        // finally, write the message length in the reserved place and restore the position
-        this.pos = startPos - 1;
-        this.writeVarint(len);
-        this.pos += len;
-    },
-
-    writeMessage: function(tag, fn, obj) {
-        this.writeTag(tag, Pbf$1.Bytes);
-        this.writeRawMessage(fn, obj);
-    },
-
-    writePackedVarint:   function(tag, arr) { if (arr.length) this.writeMessage(tag, writePackedVarint$1, arr);   },
-    writePackedSVarint:  function(tag, arr) { if (arr.length) this.writeMessage(tag, writePackedSVarint$1, arr);  },
-    writePackedBoolean:  function(tag, arr) { if (arr.length) this.writeMessage(tag, writePackedBoolean$1, arr);  },
-    writePackedFloat:    function(tag, arr) { if (arr.length) this.writeMessage(tag, writePackedFloat$1, arr);    },
-    writePackedDouble:   function(tag, arr) { if (arr.length) this.writeMessage(tag, writePackedDouble$1, arr);   },
-    writePackedFixed32:  function(tag, arr) { if (arr.length) this.writeMessage(tag, writePackedFixed32$1, arr);  },
-    writePackedSFixed32: function(tag, arr) { if (arr.length) this.writeMessage(tag, writePackedSFixed32$1, arr); },
-    writePackedFixed64:  function(tag, arr) { if (arr.length) this.writeMessage(tag, writePackedFixed64$1, arr);  },
-    writePackedSFixed64: function(tag, arr) { if (arr.length) this.writeMessage(tag, writePackedSFixed64$1, arr); },
-
-    writeBytesField: function(tag, buffer) {
-        this.writeTag(tag, Pbf$1.Bytes);
-        this.writeBytes(buffer);
-    },
-    writeFixed32Field: function(tag, val) {
-        this.writeTag(tag, Pbf$1.Fixed32);
-        this.writeFixed32(val);
-    },
-    writeSFixed32Field: function(tag, val) {
-        this.writeTag(tag, Pbf$1.Fixed32);
-        this.writeSFixed32(val);
-    },
-    writeFixed64Field: function(tag, val) {
-        this.writeTag(tag, Pbf$1.Fixed64);
-        this.writeFixed64(val);
-    },
-    writeSFixed64Field: function(tag, val) {
-        this.writeTag(tag, Pbf$1.Fixed64);
-        this.writeSFixed64(val);
-    },
-    writeVarintField: function(tag, val) {
-        this.writeTag(tag, Pbf$1.Varint);
-        this.writeVarint(val);
-    },
-    writeSVarintField: function(tag, val) {
-        this.writeTag(tag, Pbf$1.Varint);
-        this.writeSVarint(val);
-    },
-    writeStringField: function(tag, str) {
-        this.writeTag(tag, Pbf$1.Bytes);
-        this.writeString(str);
-    },
-    writeFloatField: function(tag, val) {
-        this.writeTag(tag, Pbf$1.Fixed32);
-        this.writeFloat(val);
-    },
-    writeDoubleField: function(tag, val) {
-        this.writeTag(tag, Pbf$1.Fixed64);
-        this.writeDouble(val);
-    },
-    writeBooleanField: function(tag, val) {
-        this.writeVarintField(tag, Boolean(val));
-    }
-};
-
-function readVarintRemainder$1(l, s, p) {
-    var buf = p.buf,
-        h, b;
-
-    b = buf[p.pos++]; h  = (b & 0x70) >> 4;  if (b < 0x80) return toNum$1(l, h, s);
-    b = buf[p.pos++]; h |= (b & 0x7f) << 3;  if (b < 0x80) return toNum$1(l, h, s);
-    b = buf[p.pos++]; h |= (b & 0x7f) << 10; if (b < 0x80) return toNum$1(l, h, s);
-    b = buf[p.pos++]; h |= (b & 0x7f) << 17; if (b < 0x80) return toNum$1(l, h, s);
-    b = buf[p.pos++]; h |= (b & 0x7f) << 24; if (b < 0x80) return toNum$1(l, h, s);
-    b = buf[p.pos++]; h |= (b & 0x01) << 31; if (b < 0x80) return toNum$1(l, h, s);
-
-    throw new Error('Expected varint not more than 10 bytes');
-}
-
-function readPackedEnd$1(pbf) {
-    return pbf.type === Pbf$1.Bytes ?
-        pbf.readVarint() + pbf.pos : pbf.pos + 1;
-}
-
-function toNum$1(low, high, isSigned) {
-    if (isSigned) {
-        return high * 0x100000000 + (low >>> 0);
-    }
-
-    return ((high >>> 0) * 0x100000000) + (low >>> 0);
-}
-
-function writeBigVarint$1(val, pbf) {
-    var low, high;
-
-    if (val >= 0) {
-        low  = (val % 0x100000000) | 0;
-        high = (val / 0x100000000) | 0;
-    } else {
-        low  = ~(-val % 0x100000000);
-        high = ~(-val / 0x100000000);
-
-        if (low ^ 0xffffffff) {
-            low = (low + 1) | 0;
-        } else {
-            low = 0;
-            high = (high + 1) | 0;
-        }
-    }
-
-    if (val >= 0x10000000000000000 || val < -0x10000000000000000) {
-        throw new Error('Given varint doesn\'t fit into 10 bytes');
-    }
-
-    pbf.realloc(10);
-
-    writeBigVarintLow$1(low, high, pbf);
-    writeBigVarintHigh$1(high, pbf);
-}
-
-function writeBigVarintLow$1(low, high, pbf) {
-    pbf.buf[pbf.pos++] = low & 0x7f | 0x80; low >>>= 7;
-    pbf.buf[pbf.pos++] = low & 0x7f | 0x80; low >>>= 7;
-    pbf.buf[pbf.pos++] = low & 0x7f | 0x80; low >>>= 7;
-    pbf.buf[pbf.pos++] = low & 0x7f | 0x80; low >>>= 7;
-    pbf.buf[pbf.pos]   = low & 0x7f;
-}
-
-function writeBigVarintHigh$1(high, pbf) {
-    var lsb = (high & 0x07) << 4;
-
-    pbf.buf[pbf.pos++] |= lsb         | ((high >>>= 3) ? 0x80 : 0); if (!high) return;
-    pbf.buf[pbf.pos++]  = high & 0x7f | ((high >>>= 7) ? 0x80 : 0); if (!high) return;
-    pbf.buf[pbf.pos++]  = high & 0x7f | ((high >>>= 7) ? 0x80 : 0); if (!high) return;
-    pbf.buf[pbf.pos++]  = high & 0x7f | ((high >>>= 7) ? 0x80 : 0); if (!high) return;
-    pbf.buf[pbf.pos++]  = high & 0x7f | ((high >>>= 7) ? 0x80 : 0); if (!high) return;
-    pbf.buf[pbf.pos++]  = high & 0x7f;
-}
-
-function makeRoomForExtraLength$1(startPos, len, pbf) {
-    var extraLen =
-        len <= 0x3fff ? 1 :
-        len <= 0x1fffff ? 2 :
-        len <= 0xfffffff ? 3 : Math.floor(Math.log(len) / (Math.LN2 * 7));
-
-    // if 1 byte isn't enough for encoding message length, shift the data to the right
-    pbf.realloc(extraLen);
-    for (var i = pbf.pos - 1; i >= startPos; i--) pbf.buf[i + extraLen] = pbf.buf[i];
-}
-
-function writePackedVarint$1(arr, pbf)   { for (var i = 0; i < arr.length; i++) pbf.writeVarint(arr[i]);   }
-function writePackedSVarint$1(arr, pbf)  { for (var i = 0; i < arr.length; i++) pbf.writeSVarint(arr[i]);  }
-function writePackedFloat$1(arr, pbf)    { for (var i = 0; i < arr.length; i++) pbf.writeFloat(arr[i]);    }
-function writePackedDouble$1(arr, pbf)   { for (var i = 0; i < arr.length; i++) pbf.writeDouble(arr[i]);   }
-function writePackedBoolean$1(arr, pbf)  { for (var i = 0; i < arr.length; i++) pbf.writeBoolean(arr[i]);  }
-function writePackedFixed32$1(arr, pbf)  { for (var i = 0; i < arr.length; i++) pbf.writeFixed32(arr[i]);  }
-function writePackedSFixed32$1(arr, pbf) { for (var i = 0; i < arr.length; i++) pbf.writeSFixed32(arr[i]); }
-function writePackedFixed64$1(arr, pbf)  { for (var i = 0; i < arr.length; i++) pbf.writeFixed64(arr[i]);  }
-function writePackedSFixed64$1(arr, pbf) { for (var i = 0; i < arr.length; i++) pbf.writeSFixed64(arr[i]); }
-
-// Buffer code below from https://github.com/feross/buffer, MIT-licensed
-
-function readUInt32$1(buf, pos) {
-    return ((buf[pos]) |
-        (buf[pos + 1] << 8) |
-        (buf[pos + 2] << 16)) +
-        (buf[pos + 3] * 0x1000000);
-}
-
-function writeInt32$1(buf, val, pos) {
-    buf[pos] = val;
-    buf[pos + 1] = (val >>> 8);
-    buf[pos + 2] = (val >>> 16);
-    buf[pos + 3] = (val >>> 24);
-}
-
-function readInt32$1(buf, pos) {
-    return ((buf[pos]) |
-        (buf[pos + 1] << 8) |
-        (buf[pos + 2] << 16)) +
-        (buf[pos + 3] << 24);
-}
-
-function readUtf8$1(buf, pos, end) {
-    var str = '';
-    var i = pos;
-
-    while (i < end) {
-        var b0 = buf[i];
-        var c = null; // codepoint
-        var bytesPerSequence =
-            b0 > 0xEF ? 4 :
-            b0 > 0xDF ? 3 :
-            b0 > 0xBF ? 2 : 1;
-
-        if (i + bytesPerSequence > end) break;
-
-        var b1, b2, b3;
-
-        if (bytesPerSequence === 1) {
-            if (b0 < 0x80) {
-                c = b0;
-            }
-        } else if (bytesPerSequence === 2) {
-            b1 = buf[i + 1];
-            if ((b1 & 0xC0) === 0x80) {
-                c = (b0 & 0x1F) << 0x6 | (b1 & 0x3F);
-                if (c <= 0x7F) {
-                    c = null;
-                }
-            }
-        } else if (bytesPerSequence === 3) {
-            b1 = buf[i + 1];
-            b2 = buf[i + 2];
-            if ((b1 & 0xC0) === 0x80 && (b2 & 0xC0) === 0x80) {
-                c = (b0 & 0xF) << 0xC | (b1 & 0x3F) << 0x6 | (b2 & 0x3F);
-                if (c <= 0x7FF || (c >= 0xD800 && c <= 0xDFFF)) {
-                    c = null;
-                }
-            }
-        } else if (bytesPerSequence === 4) {
-            b1 = buf[i + 1];
-            b2 = buf[i + 2];
-            b3 = buf[i + 3];
-            if ((b1 & 0xC0) === 0x80 && (b2 & 0xC0) === 0x80 && (b3 & 0xC0) === 0x80) {
-                c = (b0 & 0xF) << 0x12 | (b1 & 0x3F) << 0xC | (b2 & 0x3F) << 0x6 | (b3 & 0x3F);
-                if (c <= 0xFFFF || c >= 0x110000) {
-                    c = null;
-                }
-            }
-        }
-
-        if (c === null) {
-            c = 0xFFFD;
-            bytesPerSequence = 1;
-
-        } else if (c > 0xFFFF) {
-            c -= 0x10000;
-            str += String.fromCharCode(c >>> 10 & 0x3FF | 0xD800);
-            c = 0xDC00 | c & 0x3FF;
-        }
-
-        str += String.fromCharCode(c);
-        i += bytesPerSequence;
-    }
-
-    return str;
-}
-
-function readUtf8TextDecoder$1(buf, pos, end) {
-    return utf8TextDecoder$1.decode(buf.subarray(pos, end));
-}
-
-function writeUtf8$1(buf, str, pos) {
-    for (var i = 0, c, lead; i < str.length; i++) {
-        c = str.charCodeAt(i); // code point
-
-        if (c > 0xD7FF && c < 0xE000) {
-            if (lead) {
-                if (c < 0xDC00) {
-                    buf[pos++] = 0xEF;
-                    buf[pos++] = 0xBF;
-                    buf[pos++] = 0xBD;
-                    lead = c;
-                    continue;
-                } else {
-                    c = lead - 0xD800 << 10 | c - 0xDC00 | 0x10000;
-                    lead = null;
-                }
-            } else {
-                if (c > 0xDBFF || (i + 1 === str.length)) {
-                    buf[pos++] = 0xEF;
-                    buf[pos++] = 0xBF;
-                    buf[pos++] = 0xBD;
-                } else {
-                    lead = c;
-                }
-                continue;
-            }
-        } else if (lead) {
-            buf[pos++] = 0xEF;
-            buf[pos++] = 0xBF;
-            buf[pos++] = 0xBD;
-            lead = null;
-        }
-
-        if (c < 0x80) {
-            buf[pos++] = c;
-        } else {
-            if (c < 0x800) {
-                buf[pos++] = c >> 0x6 | 0xC0;
-            } else {
-                if (c < 0x10000) {
-                    buf[pos++] = c >> 0xC | 0xE0;
-                } else {
-                    buf[pos++] = c >> 0x12 | 0xF0;
-                    buf[pos++] = c >> 0xC & 0x3F | 0x80;
-                }
-                buf[pos++] = c >> 0x6 & 0x3F | 0x80;
-            }
-            buf[pos++] = c & 0x3F | 0x80;
-        }
-    }
-    return pos;
 }
 
 function classifyRings(rings) {
@@ -7500,7 +6335,7 @@ VectorTileLayer.prototype.toGeoJSON = function(size, sx, sy) {
     return this.feature(i).toGeoJSON(size, sx, sy);
   });
 
-  return { type: "FeatureCollection", features };
+  return { type: "FeatureCollection", features, extent: this.extent };
 };
 
 function VectorTile(pbf, end) {
@@ -7528,7 +6363,7 @@ function initMVT(source) {
 
     function parseMVT(err, data) {
       if (err) return callback(err, data);
-      const tile = new VectorTile(new pbf$1(data));
+      const tile = new VectorTile(new pbf(data));
       const json = Object.values(tile.layers)
         .reduce((d, l) => (d[l.name] = l.toGeoJSON(size), d), {});
       callback(null, json);
@@ -8524,8 +7359,8 @@ onmessage = function(msgEvent) {
       processor = initSourceProcessor(payload);
       break;
     case "getTile":
-      const { type, z, href, size } = payload;
-      let callback = (err, result) => process(id, err, result, z);
+      // let { z, x, y } = payload;
+      let callback = (err, result) => process(id, err, result, payload);
       const request = loader(payload, callback);
       tasks[id] = { request, status: "requested" };
       break;
@@ -8538,7 +7373,7 @@ onmessage = function(msgEvent) {
   }
 };
 
-function process(id, err, result, zoom) {
+function process(id, err, result, tileCoords) {
   // Make sure we still have an active task for this ID
   let task = tasks[id];
   if (!task) return;  // Task must have been canceled
@@ -8549,7 +7384,7 @@ function process(id, err, result, zoom) {
   }
 
   task.status = "parsing";
-  return processor(result, zoom).then(tile => sendTile(id, tile));
+  return processor(result, tileCoords).then(tile => sendTile(id, tile));
 }
 
 function sendTile(id, tile) {
@@ -8995,227 +7830,99 @@ function initSources(style, context, coords) {
   };
 }
 
-function canv(property) {
-  // Create a default state setter for a Canvas 2D renderer
-  return (val, ctx) => { ctx[property] = val; };
-}
+function getSetters(style) {
+  const { type, layout, paint } = style;
 
-function scaleCanv(property) {
-  // Canvas 2D state setter with compensation for scaling
-  return (val, ctx, scale = 1) => { ctx[property] = val / scale; };
-}
-
-function pair(getStyle, setState) {
-  // Return a style value getter and a renderer state setter as a paired object
-  return { getStyle, setState };
-}
-
-function initBrush({ setters, methods }) {
-  const dataFuncs = setters.filter(s => s.getStyle.type === "property");
-  const zoomFuncs = setters.filter(s => s.getStyle.type !== "property");
-
-  return function(ctx, zoom, data, atlas, scale) {
-    // Set the non-data-dependent context state
-    zoomFuncs.forEach(f => f.setState(f.getStyle(zoom), ctx, scale));
-    if (atlas) ctx.font = atlas;
-
-    methods.forEach(method => {
-      // Loop over features and draw
-      data.compressed.forEach(f => drawFeature(ctx, method, zoom, f, scale));
-    });
-  }
-
-  function drawFeature(ctx, method, zoom, feature, scale) {
-    // Set data-dependent context state
-    dataFuncs.forEach(f => f.setState(f.getStyle(zoom, feature), ctx, scale));
-
-    // Draw path
-    ctx[method](feature.path);
-  }
-}
-
-function initRoller({ setters, methods }) {
-  return function(ctx, zoom) {
-    setters.forEach(f => f.setState(f.getStyle(zoom), ctx));
-    // methods === ["fillRect"]
-    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-  };
-}
-
-function makePatternSetter(sprite) {
-  const { image, meta } = sprite;
-  const pCanvas = document.createElement("canvas");
-  const pCtx = pCanvas.getContext("2d");
-
-  return function(spriteID, ctx) {
-    const { x, y, width, height } = meta[spriteID];
-    pCanvas.width = width;
-    pCanvas.height = height;
-    pCtx.drawImage(image, x, y, width, height, 0, 0, width, height);
-    ctx.fillStyle = ctx.createPattern(pCanvas, "repeat");
-  };
-}
-
-function initBackground(paint) {
-  const setters = [
-    pair(paint["background-color"],   canv("fillStyle")),
-    pair(paint["background-opacity"], canv("globalAlpha")),
-  ];
-
-  const methods = ["fillRect"];
-
-  return { setters, methods };
-}
-
-function initRaster(paint) {
-  // TODO: skeleton idea only, not working at all
-  const setters = [
-    pair(paint["raster-opacity"], canv("globalAlpha")),
-  ];
-
-  const methods = ["drawImage"];
-
-  return { setters, methods };
-}
-
-function initCircle(paint) {
-  const setRadius = (radius, ctx, scale = 1) => {
-    ctx.lineWidth = radius * 2 / scale;
-  };
-  const setters = [
-    pair(paint["circle-radius"],  setRadius),
-    pair(paint["circle-color"],   canv("strokeStyle")),
-    pair(paint["circle-opacity"], canv("globalAlpha")),
-    pair(() => "round",           canv("lineCap")),
-  ];
-
-  const methods = ["stroke"];
-
-  return { setters, methods };
-}
-
-function initLine(layout, paint) {
-  const setters = [
-    pair(layout["line-cap"],      canv("lineCap")),
-    pair(layout["line-join"],     canv("lineJoin")),
-    pair(layout["line-miter-limit"], canv("miterLimit")),
-    // line-round-limit,
-
-    pair(paint["line-width"],     scaleCanv("lineWidth")),
-    pair(paint["line-opacity"],   canv("globalAlpha")),
-    pair(paint["line-color"],     canv("strokeStyle")),
-    // line-gap-width, 
-    // line-translate, line-translate-anchor,
-    // line-offset, line-blur, line-gradient, line-pattern, 
-  ];
-
-  let dasharray = paint["line-dasharray"];
-  if (dasharray.type !== "constant" || dasharray() !== undefined) {
-    const getWidth = paint["line-width"];
-    const getDash = (zoom, feature) => {
-      let width = getWidth(zoom, feature);
-      let dashes = dasharray(zoom, feature);
-      return dashes.map(d => d * width);
-    };
-    const setDash = (dash, ctx, scale = 1) => {
-      ctx.setLineDash(dash.map(d => d / scale));
-    };
-    setters.push( pair(getDash, setDash) );
-  }
-  const methods = ["stroke"];
-
-  return { setters, methods };
-}
-
-function initFill(paint, sprite) {
-  var getStyle, setState;
-
-  let pattern = paint["fill-pattern"];
-  if (pattern.type !== "constant" || pattern() !== undefined) {
-    // Fill with a repeated sprite. Style getter returns sprite name
-    getStyle = pattern;
-    setState = makePatternSetter(sprite);
-  } else {
-    // Fill with a solid color
-    getStyle = paint["fill-color"];
-    setState = canv("fillStyle");
-  }
-
-  const setTranslate = (t, ctx, scale = 1) => {
-    ctx.translate(t[0] / scale, t[1] / scale);
-  };
-  const setters = [
-    pair(getStyle, setState),
-    pair(paint["fill-opacity"],   canv("globalAlpha")),
-    pair(paint["fill-translate"], setTranslate),
-    // fill-translate-anchor,
-  ];
-  const methods = ["fill"];
-
-  let outline = paint["fill-outline-color"];
-  if (outline.type !== "constant" || outline() !== undefined) {
-    setters.push(
-      pair(paint["fill-outline-color"], canv("strokeStyle")),
-      pair(paint["fill-outline-width"], scaleCanv("lineWidth")), // nonstandard
-    );
-    methods.push("stroke");
-  }
-
-  return { setters, methods };
-}
-
-function initSymbol(layout, paint, sprite) {
-  const setters = [
-    pair(layout["text-size"], scaleCanv("fontSize")),
-
-    pair(paint["text-color"], canv("fillStyle")),
-    pair(paint["text-opacity"], canv("globalAlpha")),
-
-    pair(paint["text-halo-color"], canv("strokeStyle")),
-  ];
-
-  const methods = ["fillText"];
-
-  return { setters, methods };
-}
-
-function initRenderer(style, sprite) {
-  const  { type, layout, paint } = style;
+  const pair = (get, key) => ({ key, get, type: get.type });
 
   switch (type) {
     case "background":
-      return initBackground(paint);
-    case "raster":
-      return initRaster(paint);
-    case "symbol":
-      return initSymbol(layout, paint);
+      return [
+        pair(paint["background-color"],   "fillStyle"),
+        pair(paint["background-opacity"], "globalAlpha"),
+      ];
     case "circle":
-      return initCircle(paint);
+      return [
+        pair(paint["circle-radius"],  "circleRadius"),
+        pair(paint["circle-color"],   "strokeStyle"),
+        pair(paint["circle-opacity"], "globalAlpha"),
+      ];
     case "line":
-      return initLine(layout, paint);
+      return [
+        // TODO: move these to serialization step??
+        pair(layout["line-cap"],      "lineCap"),
+        pair(layout["line-join"],     "lineJoin"),
+        pair(layout["line-miter-limit"], "miterLimit"),
+        // line-round-limit,
+
+        pair(paint["line-width"],     "lineWidth"),
+        pair(paint["line-opacity"],   "globalAlpha"),
+        pair(paint["line-color"],     "strokeStyle"),
+        // line-gap-width, 
+        // line-translate, line-translate-anchor,
+        // line-offset, line-blur, line-gradient, line-pattern, 
+      ];
     case "fill":
-      return initFill(paint, sprite);
+      return [
+        pair(paint["fill-color"],     "fillStyle"),
+        pair(paint["fill-opacity"],   "globalAlpha"),
+        pair(paint["fill-translate"], "translation"),
+        // fill-translate-anchor,
+      ];
+    case "symbol":
+      return [
+        pair(paint["text-color"],     "fillStyle"),
+        pair(paint["text-opacity"],   "globalAlpha"),
+
+        pair(paint["text-halo-color"], "strokeStyle"),
+        // TODO: sprites
+      ];
+    case "raster": // TODO: not implemented!
+      return [
+        pair(paint["raster-opacity"], "globalAlpha"),
+      ];
     case "fill-extrusion":
     case "heatmap":
     case "hillshade":
     default:
-      return console.log("ERROR in initRenderer: layer.type = " +
-        style.type + " not supported!");
+      return console.log("ERROR in tile-painter: layer.type = " +
+        type + " not supported!");
   }
 }
+
+function initRenderer(context, style, sprite) {
+  const setters = getSetters(style);
+  if (!setters) return;
+
+  const method = methods[style.type];
+
+  const zoomFuncs = setters.filter(s => s.type !== "property")
+    .map(s => (z) => (context[s.key] = s.get(z)));
+  const dataFuncs = setters.filter(s => s.type === "property")
+    .map(s => (z, f) => (context[s.key] = s.get(z, f)));
+
+  return { method, zoomFuncs, dataFuncs };
+}
+
+const methods = {
+  background: "fillRect",
+  raster: "drawImage",
+  symbol: "fillText",
+  circle: "stroke",
+  line: "stroke",
+  fill: "fill",
+};
 
 function initMapPainter(params) {
   const { context, styleLayer, spriteObject } = params;
 
-  const info = initRenderer(styleLayer, spriteObject);
+  const info = initRenderer(context, styleLayer);
   if (!info) return () => null;
+
+  const { method, zoomFuncs, dataFuncs } = info;
 
   // TODO: should maxzoom be limited to 24? See the Mapbox style spec
   const { id, type, source, minzoom = 0, maxzoom = 24 } = styleLayer;
-
-  const painter = (type === "background")
-    ? initRoller(info)
-    : initBrush(info);
 
   const getData = (type === "raster")
     ? (tile) => tile 
@@ -9223,42 +7930,51 @@ function initMapPainter(params) {
 
   const paint = (type === "background")
     ? paintBackground
-    : paintLayer;
+    : paintTileset;
 
   return Object.assign(paint, { id, type, source, minzoom, maxzoom });
 
   function paintBackground({ zoom }) {
-    painter(context, zoom);
+    zoomFuncs.forEach(f => f(zoom));
+    // methods === ["fillRect"]
+    context.fillRect(0, 0, context.canvas.width, context.canvas.height);
   }
 
-  function paintLayer({ tileset, zoom, pixRatio = 1 }) {
-    if (!tileset) return;
+  function paintTileset({ tileset, zoom, pixRatio = 1 }) {
+    if (!tileset || !tileset.length) return;
 
-    let { translate: [tx, ty], scale } = tileset;
-    let pixScale = scale * pixRatio;
+    const { x, y, z } = tileset[0];
+    context.setMapCoords(x, y, z, 512);
 
-    tileset.forEach(tileBox => {
-      let { x, y, sx, sy, sw, tile } = tileBox;
+    const { translate, scale } = tileset;
+    const pixScale = scale * pixRatio;
+    const dxy = [x, y].map((c, i) => (c + translate[i]) * pixScale);
+    context.setMapShift(...dxy, pixScale);
 
-      let data = getData(tile.data);
-      if (!data) return;
+    zoomFuncs.forEach(f => f(zoom));
 
-      let x0 = (x + tx) * pixScale;
-      let y0 = (y + ty) * pixScale;
+    tileset.forEach(box => paintTile(box, zoom, translate, pixScale));
+  }
 
-      // Set clipping mask, to limit rendering to the desired output area
-      context.clipRect(x0, y0, pixScale, pixScale);
+  function paintTile(tileBox, zoom, translate, scale) {
+    const { x, y, tile } = tileBox;
 
-      // Transform coordinates to align the crop portion of the source
-      // with the target position on the canvas
-      let tileScale = pixScale / sw;
-      let dx = x0 - tileScale * sx;
-      let dy = y0 - tileScale * sy;
-      context.setTransform(tileScale, 0, 0, tileScale, dx, dy);
+    const data = getData(tile.data);
+    if (!data) return;
 
-      let styleScale = tileScale / pixRatio;
-      painter(context, zoom, data, tile.data.atlas, styleScale);
-    });
+    // Set clipping mask, to limit rendering to the target output area
+    const [x0, y0] = [x, y].map((c, i) => (c + translate[i]) * scale);
+    context.clipRect(x0, y0, scale, scale);
+
+    const atlas = tile.data.atlas;
+    if (atlas) context.font = atlas;
+
+    data.compressed.forEach(f => drawFeature(zoom, f));
+  }
+
+  function drawFeature(zoom, feature) {
+    dataFuncs.forEach(f => f(zoom, feature));
+    context[method](feature.path);
   }
 }
 
@@ -9276,7 +7992,7 @@ function initRenderer$1(context, style) {
   });
 
   return function(tilesets, zoom, pixRatio = 1) {
-    context.bindFramebufferAndSetViewport();
+    context.bindFramebufferAndSetViewport(pixRatio);
     context.clear();
     painters.forEach(painter => {
       if (zoom < painter.minzoom || painter.maxzoom < zoom) return;
