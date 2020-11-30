@@ -15,7 +15,9 @@ export function initSelector(sources) {
     if (!tileBox) return;
     const dataLayer = tileBox.tile.data.layers[layer];
     if (!dataLayer) return;
-    const { features, extent = tileSize } = dataLayer;
+    //const { features, extent = tileSize } = dataLayer;
+    const { features } = dataLayer;
+    const extent = tileSize; // TODO: use data extent
     if (!features || !features.length) return;
 
     // Convert point to tile coordinates

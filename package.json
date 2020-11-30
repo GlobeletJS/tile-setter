@@ -43,7 +43,6 @@
     "d3-tile": "github:GlobeletJS/d3-tile",
     "tile-gl": "github:GlobeletJS/tile-gl",
     "tile-mixer": "github:GlobeletJS/tile-mixer",
-    "tile-painter": "github:GlobeletJS/tile-painter#webgl",
     "tile-rack": "^1.0.2",
     "tile-stencil": "^0.3.1"
   }

@@ -1,14 +1,10 @@
 import { getStyleFuncs  } from 'tile-stencil';
-import { initMapPainter } from 'tile-painter';
 
 export function initRenderer(context, style) {
   const { sources, spriteData: spriteObject, layers } = style;
 
   const painters = layers.map(layer => {
-    let painter = initMapPainter({ 
-      context, spriteObject, 
-      styleLayer: getStyleFuncs(layer),
-    });
+    let painter = context.initPainter(getStyleFuncs(layer));
 
     painter.visible = () => layer.visible;
     return painter;

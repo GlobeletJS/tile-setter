@@ -61,10 +61,13 @@ function setup(api) {
     loadStatus.innerHTML = (percent < 100)
       ? "Loading: " + percent.toFixed(0) + "%"
       : "Complete! " + percent.toFixed(0) + "%";
+    loadStatus.innerHTML += "<br>Mouse: " + mouse;
+    let point = api.localToGlobal(mouse);
+    loadStatus.innerHTML += "<br>Global: " + point.map(n => n.toFixed(4));
 
     let feature = api.select({
       layer: "twdb-groundwater-v2",
-      point: api.localToGlobal(mouse),
+      point, //: api.localToGlobal(mouse),
       radius: 3,
     });
     infoBox.innerHTML = "<pre>" + JSON.stringify(feature, null, 2) + "</pre>";
