@@ -348,18 +348,6 @@ void main() {
 }
 `;
 
-function initSetters(pairs, uniformSetters) {
-  function pair([get, key]) {
-    let set = uniformSetters[key];
-    return (z, f) => set(get(z, f));
-  }
-
-  return {
-    zoomFuncs: pairs.filter(p => p[0].type !== "property").map(pair),
-    dataFuncs: pairs.filter(p => p[0].type === "property").map(pair),
-  };
-}
-
 function initGrid(context, useProgram, setters) {
   const { screenScale, mapCoords, mapShift } = setters;
 
@@ -370,15 +358,33 @@ function initGrid(context, useProgram, setters) {
     screenScale([ 2 / width, -2 / height, pixRatio ]);
 
     const { x, y, z } = tileset[0];
+    const numTiles = 1 << z;
+    const xw = x - Math.floor(x / numTiles) * numTiles;
     const extent = 512; // TODO: don't assume this!!
-    mapCoords([x, y, z, extent]);
+    mapCoords([xw, y, z, extent]);
 
     const { translate, scale } = tileset;
     const pixScale = scale * pixRatio;
     const [dx, dy] = [x, y].map((c, i) => (c + translate[i]) * pixScale);
-    mapShift([dx, dy, pixScale]);
 
-    return [translate, pixScale];
+    // At low zooms, some tiles may be repeated on opposite ends of the map
+    // We split them into subsets, with different values of mapShift
+    // NOTE: Only accounts for repetition across X!
+    const subsets = [];
+    [0, 1, 2].forEach(addSubset);
+
+    function addSubset(repeat) {
+      let shift = repeat * numTiles;
+      let tiles = tileset.filter(tile => {
+        let delta = tile.x - x;
+        return (delta >= shift && delta < shift + numTiles);
+      });
+      if (!tiles.length) return;
+      let setter = () => mapShift([dx + shift * pixScale, dy, pixScale]);
+      subsets.push({ tiles, setter });
+    }
+
+    return { translate, scale: pixScale, subsets };
   };
 }
 
@@ -386,11 +392,26 @@ function initTilesetPainter(setGrid, zoomFuncs, paintTile) {
   return function({ tileset, zoom, pixRatio = 1 }) {
     if (!tileset || !tileset.length) return;
 
-    const [translate, scale] = setGrid(tileset, pixRatio);
+    const { translate, scale, subsets } = setGrid(tileset, pixRatio);
 
     zoomFuncs.forEach(f => f(zoom));
 
-    tileset.forEach(box => paintTile(box, zoom, translate, scale));
+    subsets.forEach(({ setter, tiles }) => {
+      setter();
+      tiles.forEach(box => paintTile(box, zoom, translate, scale));
+    });
+  };
+}
+
+function initSetters(pairs, uniformSetters) {
+  function pair([get, key]) {
+    let set = uniformSetters[key];
+    return (z, f) => set(get(z, f));
+  }
+
+  return {
+    zoomFuncs: pairs.filter(p => p[0].type !== "property").map(pair),
+    dataFuncs: pairs.filter(p => p[0].type === "property").map(pair),
   };
 }
 
@@ -5428,7 +5449,7 @@ function initParser(style) {
       };
     case "line":
       return {
-        getLen: (b) => b.lines.length / 3 - 3,
+        getLen: (b) => b.lines.length / 3,
         parse: parseLine,
       };
     case "fill":
