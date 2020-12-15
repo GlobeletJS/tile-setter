@@ -26,7 +26,7 @@ export function initSources(style, context, coords) {
     grids.forEach(grid => {
       // Make sure data from this source is still being displayed
       if (!grid.layers.some(l => l.visible)) return;
-      tilesets[grid.key] = grid.getTiles(viewport, transform, pixRatio);
+      tilesets[grid.key] = grid.getTiles(viewport, transform);
     });
     caches.sortTasks();
     const loadStatus = Object.values(tilesets).map(t => t.loaded)

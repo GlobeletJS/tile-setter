@@ -11,7 +11,7 @@ export function initRenderer(context, style) {
   });
 
   return function(tilesets, zoom, pixRatio = 1) {
-    context.bindFramebufferAndSetViewport(pixRatio);
+    context.bindFramebufferAndSetViewport();
     context.clear();
     painters.forEach(painter => {
       if (zoom < painter.minzoom || painter.maxzoom < zoom) return;

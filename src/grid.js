@@ -14,7 +14,7 @@ export function initTileGrid({ key, source, tileCache }) {
     .maxZoom(maxzoom)
     .clampX(false); // Allow panning across the antimeridian
 
-  function getTiles(viewport, transform, pixRatio = 1) {
+  function getTiles(viewport, transform) {
     // Get the grid of tiles needed for the current viewport
     layout.size(viewport);
     const tiles = layout(transform);

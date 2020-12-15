@@ -7841,7 +7841,7 @@ function initTileGrid({ key, source, tileCache }) {
     .maxZoom(maxzoom)
     .clampX(false); // Allow panning across the antimeridian
 
-  function getTiles(viewport, transform, pixRatio = 1) {
+  function getTiles(viewport, transform) {
     // Get the grid of tiles needed for the current viewport
     layout.size(viewport);
     const tiles = layout(transform);
@@ -7904,7 +7904,7 @@ function initSources(style, context, coords) {
     grids.forEach(grid => {
       // Make sure data from this source is still being displayed
       if (!grid.layers.some(l => l.visible)) return;
-      tilesets[grid.key] = grid.getTiles(viewport, transform, pixRatio);
+      tilesets[grid.key] = grid.getTiles(viewport, transform);
     });
     caches.sortTasks();
     const loadStatus = Object.values(tilesets).map(t => t.loaded)
@@ -7932,7 +7932,7 @@ function initRenderer(context, style) {
   });
 
   return function(tilesets, zoom, pixRatio = 1) {
-    context.bindFramebufferAndSetViewport(pixRatio);
+    context.bindFramebufferAndSetViewport();
     context.clear();
     painters.forEach(painter => {
       if (zoom < painter.minzoom || painter.maxzoom < zoom) return;
