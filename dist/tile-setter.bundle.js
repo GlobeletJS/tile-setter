@@ -123,11 +123,13 @@ function createUniformSetters(gl, program) {
     [gl.SAMPLER_CUBE]: 1,
   };
 
-  const numUniforms = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
-  const uniformInfo = Array.from({ length: numUniforms })
+  // Collect info about all the uniforms used by the program
+  const uniformInfo = Array
+    .from({ length: gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS) })
     .map((v, i) => gl.getActiveUniform(program, i))
     .filter(info => info !== undefined);
 
+  const textureTypes = [gl.SAMPLER_2D, gl.SAMPLER_CUBE];
   var textureUnit = 0;
 
   return uniformInfo.reduce((d, info) => {
@@ -139,41 +141,63 @@ function createUniformSetters(gl, program) {
     //d[key] = wrapSetter(setter, isArray, type, size);
     d[key] = createUniformSetter(gl, program, info, textureUnit);
 
-    if (type === gl.TEXTURE_2D || type === gl.TEXTURE_CUBE_MAP) {
-      textureUnit += size;
-    }
+    if (textureTypes.includes(type)) textureUnit += size;
 
     return d;
   }, {});
 }
 
-function getVao(gl, program, attributeState) {
-  const { attributes, indices } = attributeState;
+function initAttributes(gl, program) {
+  // Construct a dictionary of the indices of each attribute used by program
+  const attrIndices = Array
+    .from({ length: gl.getProgramParameter(program, gl.ACTIVE_ATTRIBUTES) })
+    .map((v, i) => gl.getActiveAttrib(program, i))
+    .reduce((d, { name }, index) => (d[name] = index, d), {});
 
-  const vao = gl.createVertexArray();
-  gl.bindVertexArray(vao);
+  // Construct a dictionary of functions to set a constant value for a given
+  // vertex attribute, when a per-vertex buffer is not needed
+  const constantSetters = Object.entries(attrIndices).reduce((d, [name, i]) => {
+    d[name] = function(v) {
+      gl.disableVertexAttribArray(i);
 
-  Object.entries(attributes).forEach(([name, a]) => {
-    var index = gl.getAttribLocation(program, name);
-    if (index < 0) return;
+      // For float attributes, the supplied value may be a Number
+      if (v.length === undefined) return gl.vertexAttrib1f(i, v);
 
-    gl.enableVertexAttribArray(index);
-    gl.bindBuffer(gl.ARRAY_BUFFER, a.buffer);
-    gl.vertexAttribPointer(
-      index, // index of attribute in program
-      a.numComponents || a.size, // Number of elements to read per vertex
-      a.type || gl.FLOAT, // Type of each element
-      a.normalize || false, // Whether to normalize it
-      a.stride || 0, // Byte spacing between vertices
-      a.offset || 0 // Byte # to start reading from
-    );
-    gl.vertexAttribDivisor(index, a.divisor || 0);
-  });
+      if (![1, 2, 3, 4].includes(v.length)) return;
+      const methodName = "vertexAttrib" + v.length + "fv";
+      gl[methodName](i, v);
+    };
+    return d;
+  }, {});
 
-  if (indices) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indices.buffer);
+  function constructVao({ attributes, indices }) {
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
 
-  gl.bindVertexArray(null);
-  return vao;
+    Object.entries(attributes).forEach(([name, a]) => {
+      const index = attrIndices[name];
+      if (index === undefined) return;
+
+      gl.enableVertexAttribArray(index);
+      gl.bindBuffer(gl.ARRAY_BUFFER, a.buffer);
+      gl.vertexAttribPointer(
+        index,                // index of attribute in program
+        a.numComponents || a.size, // Number of elements to read per vertex
+        a.type || gl.FLOAT,   // Type of each element
+        a.normalize || false, // Whether to normalize it
+        a.stride || 0,        // Byte spacing between vertices
+        a.offset || 0         // Byte # to start reading from
+      );
+      gl.vertexAttribDivisor(index, a.divisor || 0);
+    });
+
+    if (indices) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indices.buffer);
+
+    gl.bindVertexArray(null);
+    return vao;
+  }
+
+  return { constantSetters, constructVao };
 }
 
 function initProgram(gl, vertexSrc, fragmentSrc) {
@@ -186,10 +210,13 @@ function initProgram(gl, vertexSrc, fragmentSrc) {
     fail("Unable to link the program", gl.getProgramInfoLog(program));
   }
 
+  const { constantSetters, constructVao } = initAttributes(gl, program);
+  const uniformSetters = createUniformSetters(gl, program);
+
   return {
-    uniformSetters: createUniformSetters(gl, program),
+    uniformSetters: Object.assign(uniformSetters, constantSetters),
     use: () => gl.useProgram(program),
-    constructVao: (attributeState) => getVao(gl, program, attributeState),
+    constructVao,
   };
 }
 
@@ -239,10 +266,20 @@ function initAttribute(gl, options) {
   return { buffer, numComponents, type, normalize, stride, offset, divisor };
 }
 
-function createBuffer(gl, data) {
+function initIndices(gl, options) {
+  const {
+    buffer = createBuffer(gl, options.data, gl.ELEMENT_ARRAY_BUFFER),
+    type = gl.UNSIGNED_INT,
+    offset = 0,
+  } = options;
+
+  return { buffer, type, offset, vertexCount: options.data.length };
+}
+
+function createBuffer(gl, data, bindPoint = gl.ARRAY_BUFFER) {
   const buffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+  gl.bindBuffer(bindPoint, buffer);
+  gl.bufferData(bindPoint, data, gl.STATIC_DRAW);
   return buffer;
 }
 
@@ -256,17 +293,18 @@ function initContext(gl, framebuffer, framebufferSize) {
     gl,
     initQuad: (geom) => initQuad(gl, geom),
     initAttribute: (options) => initAttribute(gl, options),
+    initIndices: (options) => initIndices(gl, options),
+    createBuffer: (data) => createBuffer(gl, data),
     initProgram: (vert, frag) => initProgram(gl, preamble + vert, frag),
     canvas: framebufferSize,
 
     bindFramebufferAndSetViewport,
     clear,
     clipRect,
-    drawInstancedQuads,
-    drawElements,
+    draw,
   };
 
-  function bindFramebufferAndSetViewport(pixRatio = 1) {
+  function bindFramebufferAndSetViewport() {
     gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
     let { width, height } = framebufferSize;
     gl.viewport(0, 0, width, height);
@@ -285,16 +323,15 @@ function initContext(gl, framebuffer, framebufferSize) {
     gl.scissor(...roundedArgs);
   }
 
-  function drawInstancedQuads(vao, numInstances) {
+  function draw({ vao, indices, numInstances }) {
     gl.bindVertexArray(vao);
-    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, numInstances);
-    gl.bindVertexArray(null);
-  }
-
-  function drawElements(vao, indices) {
-    const { vertexCount, type, offset } = indices;
-    gl.bindVertexArray(vao);
-    gl.drawElements(gl.TRIANGLES, vertexCount, type, offset);
+    if (indices) {
+      let { vertexCount, type, offset } = indices;
+      gl.drawElements(gl.TRIANGLES, vertexCount, type, offset);
+    } else {
+      // Assume quad instances
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, numInstances);
+    }
     gl.bindVertexArray(null);
   }
 }
@@ -315,17 +352,24 @@ function initBackground(context) {
 
 var vert = `attribute vec2 quadPos; // Vertices of the quad instance
 attribute vec2 circlePos;
-
-uniform float circleRadius;
+attribute float radius;
+attribute vec4 color;
+attribute float opacity;
 
 varying vec2 delta;
+varying vec4 strokeStyle;
+varying float circleRadius;
 
 void main() {
   vec2 mapPos = tileToMap(circlePos);
 
   // Shift to the appropriate corner of the current instance quad
-  delta = 2.0 * quadPos * (circleRadius + 1.0);
+  delta = 2.0 * quadPos * (radius + 1.0);
   vec2 dPos = delta * screenScale.z;
+
+  strokeStyle = color * opacity;
+  // TODO: normalize delta? Then can drop one varying
+  circleRadius = radius;
 
   gl_Position = mapToClip(mapPos + dPos, 0.0);
 }
@@ -333,18 +377,16 @@ void main() {
 
 var frag = `precision mediump float;
 
-uniform highp float circleRadius;
-uniform vec4 strokeStyle;
-uniform float globalAlpha;
-
 varying vec2 delta;
+varying vec4 strokeStyle;
+varying float circleRadius;
 
 void main() {
   float r = length(delta);
   float dr = fwidth(r);
 
   float taper = 1.0 - smoothstep(circleRadius - dr, circleRadius + dr, r);
-  gl_FragColor = strokeStyle * globalAlpha * taper;
+  gl_FragColor = strokeStyle * taper;
 }
 `;
 
@@ -398,7 +440,7 @@ function initTilesetPainter(setGrid, zoomFuncs, paintTile) {
 
     subsets.forEach(({ setter, tiles }) => {
       setter();
-      tiles.forEach(box => paintTile(box, zoom, translate, scale));
+      tiles.forEach(box => paintTile(box, translate, scale));
     });
   };
 }
@@ -415,14 +457,12 @@ function initSetters(pairs, uniformSetters) {
   };
 }
 
-function initVectorTilePainter(context, program) {
-  const { id, setAtlas, dataFuncs, draw } = program;
-
-  return function(tileBox, zoom, translate, scale) {
+function initVectorTilePainter(context, layerId, setAtlas) {
+  return function(tileBox, translate, scale) {
     const { x, y, tile } = tileBox;
     const { layers, atlas } = tile.data;
 
-    const data = layers[id];
+    const data = layers[layerId];
     if (!data) return;
 
     const [x0, y0] = [x, y].map((c, i) => (c + translate[i]) * scale);
@@ -430,61 +470,64 @@ function initVectorTilePainter(context, program) {
 
     if (setAtlas && atlas) setAtlas(atlas);
 
-    data.compressed.forEach(f => drawFeature(zoom, f));
+    context.draw(data.buffers);
   };
-
-  function drawFeature(zoom, feature) {
-    dataFuncs.forEach(f => f(zoom, feature));
-    draw(feature.path);
-  }
 }
 
 function initCircle(context) {
-  const program = context.initProgram(vert, frag);
+  const { initProgram, initQuad, initAttribute } = context;
+
+  const program = initProgram(vert, frag);
   const { use, uniformSetters, constructVao } = program;
 
   const grid = initGrid(context, use, uniformSetters);
 
-  const quadPos = context.initQuad({ x0: -0.5, y0: -0.5 });
+  const quadPos = initQuad({ x0: -0.5, y0: -0.5 });
+
+  const attrInfo = {
+    circlePos: {},
+    tileCoords: { numComponents: 3 },
+    radius: { numComponents: 1 },
+    color: { numComponents: 4 },
+    opacity: { numComponents: 1 },
+  };
 
   function load(buffers) {
-    const { points, tileCoords } = buffers;
-    const attributes = {
-      quadPos,
-      circlePos: context.initAttribute({ data: points }),
-      tileCoords: context.initAttribute({ data: tileCoords, numComponents: 3 }),
-    };
-    const vao = constructVao({ attributes });
-    return { vao, numInstances: points.length / 2 };
-  }
+    const attributes = Object.entries(attrInfo).reduce((d, [key, info]) => {
+      let data = buffers[key];
+      if (data) d[key] = initAttribute(Object.assign({ data }, info));
+      return d;
+    }, { quadPos });
 
-  function draw(buffers) {
-    const { vao, numInstances } = buffers;
-    context.drawInstancedQuads(vao, numInstances);
+    const vao = constructVao({ attributes });
+    return { vao, numInstances: buffers.circlePos.length / 2 };
   }
 
   function initPainter(style) {
     const { id, paint } = style;
 
     const { zoomFuncs, dataFuncs } = initSetters([
-      [paint["circle-radius"],  "circleRadius"],
-      [paint["circle-color"],   "strokeStyle"],
-      [paint["circle-opacity"], "globalAlpha"],
+      [paint["circle-radius"],  "radius"],
+      [paint["circle-color"],   "color"],
+      [paint["circle-opacity"], "opacity"],
     ], uniformSetters);
 
-    const paintTile = initVectorTilePainter(context, { id, dataFuncs, draw });
+    const paintTile = initVectorTilePainter(context, id);
     return initTilesetPainter(grid, zoomFuncs, paintTile);
   }
   return { load, initPainter };
 }
 
-var vert$1 = `attribute vec2 position;
+var vert$1 = `attribute vec2 quadPos;
 attribute vec3 pointA, pointB, pointC, pointD;
+attribute vec4 color;
+attribute float opacity;
 
 uniform float lineWidth, miterLimit;
 
 varying float yCoord;
 varying vec2 miterCoord1, miterCoord2;
+varying vec4 strokeStyle;
 
 mat3 miterTransform(vec2 xHat, vec2 yHat, vec2 v, float pixWidth) {
   // Find a coordinate basis vector aligned along the bisector
@@ -534,15 +577,20 @@ void main() {
   mat3 m2 = miterTransform(-xBasis, yBasis, mapD - mapC, pixWidth);
 
   // Find the position of the current instance vertex, in 3 coordinate systems
-  vec2 extend = miterLimit * xBasis * pixWidth * (position.x - 0.5);
+  vec2 extend = miterLimit * xBasis * pixWidth * (quadPos.x - 0.5);
   // Add one pixel on either side of the line for the anti-alias taper
-  float y = (pixWidth + 2.0) * position.y;
-  vec2 point = mapB + xAxis * position.x + yBasis * y + extend;
+  float y = (pixWidth + 2.0) * quadPos.y;
+  vec2 point = mapB + xAxis * quadPos.x + yBasis * y + extend;
   miterCoord1 = (m1 * vec3(point - mapB, 1)).xy;
   miterCoord2 = (m2 * vec3(point - mapC, 1)).xy;
 
   // Remove pixRatio from varying (we taper edges using unscaled value)
   yCoord = y / screenScale.z;
+
+  // TODO: should this premultiplication be done in tile-stencil?
+  //vec4 premult = vec4(color.rgb * color.a, color.a);
+  //strokeStyle = premult * opacity;
+  strokeStyle = color * opacity;
 
   gl_Position = mapToClip(point, pointB.z + pointC.z);
 }
@@ -550,11 +598,11 @@ void main() {
 
 var frag$1 = `precision highp float;
 
-uniform vec4 strokeStyle;
-uniform float lineWidth, globalAlpha;
+uniform float lineWidth;
 
 varying float yCoord;
 varying vec2 miterCoord1, miterCoord2;
+varying vec4 strokeStyle;
 
 void main() {
   float step0 = fwidth(yCoord) * 0.707;
@@ -576,41 +624,49 @@ void main() {
     step(-0.01 * step1.y, miterCoord1.y) *
     step(0.01 * step2.y, miterCoord2.y);
 
-  vec4 premult = vec4(strokeStyle.rgb * strokeStyle.a, strokeStyle.a);
-  gl_FragColor = premult * globalAlpha * antialias * taperx * tapery;
+  gl_FragColor = strokeStyle * antialias * taperx * tapery;
 }
 `;
 
 function initLineLoader(context, constructVao) {
-  const { gl, initQuad, initAttribute } = context;
+  const { initQuad, createBuffer, initAttribute } = context;
 
-  const position = initQuad({ x0: 0.0, y0: -0.5 });
+  const quadPos = initQuad({ x0: 0.0, y0: -0.5 });
+
+  const attrInfo = {
+    tileCoords: { numComponents: 3 },
+    color: { numComponents: 4 },
+    opacity: { numComponents: 1 },
+  };
 
   const numComponents = 3;
   const stride = Float32Array.BYTES_PER_ELEMENT * numComponents;
 
   return function(buffers) {
-    const { lines, tileCoords } = buffers;
+    const { lines } = buffers;
 
     // Create buffer containing the vertex positions
-    const buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, lines, gl.STATIC_DRAW);
+    const buffer = createBuffer(lines);
 
     // Create interleaved attributes pointing to different offsets in buffer
-    const attributes = {
-      position,
+    const geometryAttributes = {
+      quadPos,
       pointA: setupPoint(0),
       pointB: setupPoint(1),
       pointC: setupPoint(2),
       pointD: setupPoint(3),
-      tileCoords: initAttribute({ data: tileCoords, numComponents: 3 }),
     };
 
     function setupPoint(shift) {
       const offset = shift * stride;
       return initAttribute({ buffer, numComponents, stride, offset });
     }
+
+    const attributes = Object.entries(attrInfo).reduce((d, [key, info]) => {
+      let data = buffers[key];
+      if (data) d[key] = initAttribute(Object.assign({ data }, info));
+      return d;
+    }, geometryAttributes);
 
     const vao = constructVao({ attributes });
 
@@ -626,11 +682,6 @@ function initLine(context) {
 
   const load = initLineLoader(context, constructVao);
 
-  function draw(buffers) {
-    const { vao, numInstances } = buffers;
-    context.drawInstancedQuads(vao, numInstances);
-  }
-
   function initPainter(style) {
     const { id, layout, paint } = style;
 
@@ -641,25 +692,31 @@ function initLine(context) {
       [layout["line-miter-limit"], "miterLimit"],
 
       [paint["line-width"],     "lineWidth"],
-      [paint["line-color"],     "strokeStyle"],
-      [paint["line-opacity"],   "globalAlpha"],
+      [paint["line-color"],     "color"],
+      [paint["line-opacity"],   "opacity"],
       // line-gap-width,
       // line-translate, line-translate-anchor,
       // line-offset, line-blur, line-gradient, line-pattern
     ], uniformSetters);
 
-    const paintTile = initVectorTilePainter(context, { id, dataFuncs, draw });
+    const paintTile = initVectorTilePainter(context, id);
     return initTilesetPainter(grid, zoomFuncs, paintTile);
   }
   return { load, initPainter };
 }
 
-var vert$2 = `attribute vec2 a_position;
+var vert$2 = `attribute vec2 position;
+attribute vec4 color;
+attribute float opacity;
 
 uniform vec2 translation;   // From style property paint["fill-translate"]
 
+varying vec4 fillStyle;
+
 void main() {
-  vec2 mapPos = tileToMap(a_position) + translation * screenScale.z;
+  vec2 mapPos = tileToMap(position) + translation * screenScale.z;
+
+  fillStyle = color * opacity;
 
   gl_Position = mapToClip(mapPos, 0.0);
 }
@@ -667,33 +724,31 @@ void main() {
 
 var frag$2 = `precision mediump float;
 
-uniform vec4 fillStyle;
-uniform float globalAlpha;
+varying vec4 fillStyle;
 
 void main() {
-    gl_FragColor = fillStyle * globalAlpha;
+    gl_FragColor = fillStyle;
 }
 `;
 
 function initFillLoader(context, constructVao) {
-  const { gl, initAttribute } = context;
+  const { initAttribute, initIndices } = context;
+
+  const attrInfo = {
+    position: { divisor: 0 },
+    tileCoords: { numComponents: 3, divisor: 0 },
+    color: { numComponents: 4, divisor: 0 },
+    opacity: { numComponents: 1, divisor: 0 },
+  };
 
   return function(buffers) {
-    const { vertices, indices: indexData, lines, tileCoords } = buffers;
+    const attributes = Object.entries(attrInfo).reduce((d, [key, info]) => {
+      let data = buffers[key];
+      if (data) d[key] = initAttribute(Object.assign({ data }, info));
+      return d;
+    }, {});
 
-    const attributes = {
-      a_position: initAttribute({ data: vertices, divisor: 0 }),
-      tileCoords: initAttribute({ data: tileCoords, numComponents: 3 }),
-    };
-
-    const indices = {
-      buffer: gl.createBuffer(),
-      vertexCount: indexData.length,
-      type: gl.UNSIGNED_SHORT,
-      offset: 0
-    };
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indices.buffer);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexData, gl.STATIC_DRAW);
+    const indices = initIndices({ data: buffers.indices });
 
     const vao = constructVao({ attributes, indices });
     return { vao, indices };
@@ -707,21 +762,16 @@ function initFill(context) {
 
   const load = initFillLoader(context, constructVao);
 
-  function draw(buffers) {
-    const { vao, indices } = buffers;
-    context.drawElements(vao, indices);
-  }
-
   function initPainter(style) {
     const { id, paint } = style;
 
     const { zoomFuncs, dataFuncs } = initSetters([
-      [paint["fill-color"],     "fillStyle"],
-      [paint["fill-opacity"],   "globalAlpha"],
+      [paint["fill-color"],     "color"],
+      [paint["fill-opacity"],   "opacity"],
       [paint["fill-translate"], "translation"],
     ], uniformSetters);
 
-    const paintTile = initVectorTilePainter(context, { id, dataFuncs, draw });
+    const paintTile = initVectorTilePainter(context, id);
     return initTilesetPainter(grid, zoomFuncs, paintTile);
   }
   return { load, initPainter };
@@ -731,10 +781,15 @@ var vert$3 = `attribute vec2 quadPos;  // Vertices of the quad instance
 attribute vec2 labelPos; // x, y
 attribute vec3 charPos;  // dx, dy, scale (relative to labelPos)
 attribute vec4 sdfRect;  // x, y, w, h
+attribute vec4 color;
+attribute float opacity;
 
 varying vec2 texCoord;
+varying vec4 fillStyle;
 
 void main() {
+  fillStyle = color * opacity;
+
   texCoord = sdfRect.xy + sdfRect.zw * quadPos;
 
   vec2 mapPos = tileToMap(labelPos);
@@ -750,9 +805,8 @@ var frag$3 = `precision highp float;
 
 uniform sampler2D sdf;
 uniform vec2 sdfDim;
-uniform vec4 fillStyle;
-uniform float globalAlpha;
 
+varying vec4 fillStyle;
 varying vec2 texCoord;
 
 void main() {
@@ -763,7 +817,7 @@ void main() {
 
   // TODO: threshold 0.5 looks too pixelated. Why?
   float alpha = smoothstep(-0.8, 0.8, -screenDist);
-  gl_FragColor = fillStyle * (alpha * globalAlpha);
+  gl_FragColor = fillStyle * alpha;
 }
 `;
 
@@ -772,20 +826,55 @@ function initTextLoader(context, constructVao) {
 
   const quadPos = initQuad({ x0: 0.0, y0: 0.0 });
 
-  return function(buffers) {
-    const { origins, deltas, rects, tileCoords } = buffers;
+  const attrInfo = {
+    labelPos: {},
+    charPos: { numComponents: 3 },
+    sdfRect: { numComponents: 4 },
+    tileCoords: { numComponents: 3 },
+    color: { numComponents: 4 },
+    opacity: { numComponents: 1 },
+  };
 
-    const attributes = {
-      quadPos,
-      labelPos: initAttribute({ data: origins }),
-      charPos: initAttribute({ data: deltas, numComponents: 3 }),
-      sdfRect: initAttribute({ data: rects, numComponents: 4 }),
-      tileCoords: initAttribute({ data: tileCoords, numComponents: 3 }),
-    };
+  return function(buffers) {
+    const attributes = Object.entries(attrInfo).reduce((d, [key, info]) => {
+      let data = buffers[key];
+      if (data) d[key] = initAttribute(Object.assign({ data }, info));
+      return d;
+    }, { quadPos });
+
     const vao = constructVao({ attributes });
 
-    return { vao, numInstances: origins.length / 2 };
+    return { vao, numInstances: buffers.labelPos.length / 2 };
   };
+}
+
+function initText(context) {
+  const program = context.initProgram(vert$3, frag$3);
+  const { use, uniformSetters, constructVao } = program;
+  const grid = initGrid(context, use, uniformSetters);
+
+  const load = initTextLoader(context, constructVao);
+
+  function setAtlas(atlas) {
+    uniformSetters.sdf(atlas.sampler);
+    uniformSetters.sdfDim([atlas.width, atlas.height]);
+  }
+
+  function initPainter(style) {
+    const { id, paint } = style;
+
+    const { zoomFuncs, dataFuncs } = initSetters([
+      [paint["text-color"],   "color"],
+      [paint["text-opacity"], "opacity"],
+
+      // text-halo-color
+      // TODO: sprites
+    ], uniformSetters);
+
+    const paintTile = initVectorTilePainter(context, id, setAtlas);
+    return initTilesetPainter(grid, zoomFuncs, paintTile);
+  }
+  return { load, initPainter };
 }
 
 function initAtlasLoader(gl) {
@@ -814,42 +903,6 @@ function initAtlasLoader(gl) {
   };
 }
 
-function initText(context) {
-  const program = context.initProgram(vert$3, frag$3);
-  const { use, uniformSetters, constructVao } = program;
-  const grid = initGrid(context, use, uniformSetters);
-
-  const load = initTextLoader(context, constructVao);
-  const loadAtlas = initAtlasLoader(context.gl);
-
-  function draw(buffers) {
-    const { vao, numInstances } = buffers;
-    context.drawInstancedQuads(vao, numInstances);
-  }
-
-  function setAtlas(atlas) {
-    uniformSetters.sdf(atlas.sampler);
-    uniformSetters.sdfDim([atlas.width, atlas.height]);
-  }
-
-  function initPainter(style) {
-    const { id, paint } = style;
-
-    const { zoomFuncs, dataFuncs } = initSetters([
-      [paint["text-color"],     "fillStyle"],
-      [paint["text-opacity"],   "globalAlpha"],
-
-      // text-halo-color
-      // TODO: sprites
-    ], uniformSetters);
-
-    const progInfo = { id, dataFuncs, setAtlas, draw };
-    const paintTile = initVectorTilePainter(context, progInfo);
-    return initTilesetPainter(grid, zoomFuncs, paintTile);
-  }
-  return { load, loadAtlas, initPainter };
-}
-
 function initGLpaint(gl, framebuffer, framebufferSize) {
   const context = initContext(gl, framebuffer, framebufferSize);
 
@@ -862,13 +915,13 @@ function initGLpaint(gl, framebuffer, framebufferSize) {
   };
 
   function loadBuffers(buffers) {
-    if (buffers.vertices) {
+    if (buffers.indices) {
       return programs.fill.load(buffers);
     } else if (buffers.lines) {
       return programs.line.load(buffers);
-    } else if (buffers.points) {
+    } else if (buffers.circlePos) {
       return programs.circle.load(buffers);
-    } else if (buffers.origins) {
+    } else if (buffers.labelPos) {
       return programs.symbol.load(buffers);
     } else {
       throw("loadBuffers: unknown buffers structure!");
@@ -889,7 +942,7 @@ function initGLpaint(gl, framebuffer, framebufferSize) {
     bindFramebufferAndSetViewport: context.bindFramebufferAndSetViewport,
     clear: context.clear,
     loadBuffers,
-    loadAtlas: programs.symbol.loadAtlas,
+    loadAtlas: initAtlasLoader(gl),
     initPainter,
   };
 }
@@ -2304,32 +2357,6 @@ function getIdleWorkerID(workLoads) {
     if (workLoads[i] < workLoads[id]) id = i;
   }
   return id;
-}
-
-function initDataPrep(context) {
-  const { loadBuffers, loadAtlas } = context;
-
-  // Return a function that creates an array of prep calls for a source
-  return function (source, callback) {
-    const { atlas, layers } = source;
-
-    const prepTasks = Object.values(layers)
-      .map(layer => () => loadFeatures(layer.compressed));
-
-    if (atlas) prepTasks.push(() => { source.atlas = loadAtlas(atlas); });
-
-    prepTasks.push(() => callback(null, source));
-
-    return prepTasks;
-  };
-
-  function loadFeatures(features) {
-    // TODO: make this more functional? Note: keeping feature.properties
-    features.forEach(feature => {
-      feature.path = loadBuffers(feature.buffers);
-      delete feature.buffers;  // Should we do this?
-    });
-  }
 }
 
 var workerCode = String.raw`function define(constructor, factory, prototype) {
@@ -4320,9 +4347,33 @@ function getTextTransform(code) {
   }
 }
 
-function parseCircle(feature) {
-  const points = flattenPoints(feature.geometry);
-  if (points) return { points };
+function initCircleParsing(style) {
+  const { paint } = style;
+
+  const dataFuncs = [
+    [paint["circle-radius"],  "radius"],
+    [paint["circle-color"],   "color"],
+    [paint["circle-opacity"], "opacity"],
+  ].filter(([get, key]) => get.type === "property");
+
+  return function(feature, { z, x, y }) {
+    const circlePos = flattenPoints(feature.geometry);
+    if (!circlePos) return;
+
+    const length = circlePos.length / 2;
+    
+    const buffers = { 
+      circlePos,
+      tileCoords: Array.from({ length }).flatMap(v => [x, y, z]),
+    };
+
+    dataFuncs.forEach(([get, key]) => {
+      let val = get(null, feature);
+      buffers[key] = Array.from({ length }).flatMap(v => val);
+    });
+
+    return buffers;
+  };
 }
 
 function flattenPoints(geometry) {
@@ -4338,9 +4389,33 @@ function flattenPoints(geometry) {
   }
 }
 
-function parseLine(feature) {
-  const lines = flattenLines(feature.geometry);
-  if (lines) return { lines };
+function initLineParsing(style) {
+  const { paint } = style;
+
+  // TODO: check for property-dependence of lineWidth, lineGapWidth
+  const dataFuncs = [
+    [paint["line-color"], "color"],
+    [paint["line-opacity"], "opacity"],
+  ].filter(([get, key]) => get.type === "property");
+
+  return function(feature, { z, x, y }) {
+    const lines = flattenLines(feature.geometry);
+    if (!lines) return;
+
+    const length = lines.length / 3;
+
+    const buffers = {
+      lines,
+      tileCoords: Array.from({ length }).flatMap(v => [x, y, z]),
+    };
+
+    dataFuncs.forEach(([get, key]) => {
+      let val = get(null, feature);
+      buffers[key] = Array.from({ length }).flatMap(v => val);
+    });
+
+    return buffers;
+  };
 }
 
 function flattenLines(geometry) {
@@ -5061,12 +5136,32 @@ earcut.flatten = function (data) {
 };
 earcut_1.default = default_1;
 
-function parseFill(feature) {
-  const triangles = triangulate(feature.geometry);
+function initFillParsing(style) {
+  const { paint } = style;
 
-  if (triangles) return {
-    vertices: triangles.vertices,
-    indices: triangles.indices,
+  const dataFuncs = [
+    [paint["fill-color"],   "color"],
+    [paint["fill-opacity"], "opacity"],
+  ].filter(([get, key]) => get.type === "property");
+
+  return function(feature, { z, x, y }) {
+    const triangles = triangulate(feature.geometry);
+    if (!triangles) return;
+
+    const length = triangles.vertices.length / 2;
+
+    const buffers = {
+      position: triangles.vertices,
+      indices: triangles.indices,
+      tileCoords: Array.from({ length }).flatMap(v => [x, y, z]),
+    };
+
+    dataFuncs.forEach(([get, key]) => {
+      let val = get(null, feature);
+      buffers[key] = Array.from({ length }).flatMap(v => val);
+    });
+
+    return buffers;
   };
 }
 
@@ -5332,9 +5427,7 @@ function trailingWhiteSpace(line) {
   return whitespace[line[len - 1].code];
 }
 
-function initShaper(style) {
-  const layout = style.layout;
-
+function initShaper(layout) {
   return function(feature, zoom, atlas) {
     // For each feature, compute a list of info for each character:
     // - x0, y0  defining overall label position
@@ -5373,16 +5466,16 @@ function initShaper(style) {
     // 5. Compute top left corners of the glyphs in each line,
     //    appending the font size scalar for final positioning
     const scalar = layout["text-size"](zoom, feature) / ONE_EM;
-    const deltas = lines
+    const charPos = lines
       .flatMap((l, i) => layoutLine(l, lineOrigins[i], spacing, scalar));
 
     // 6. Fill in label origins for each glyph. TODO: assumes Point geometry
     const origin = feature.geometry.coordinates.slice();
-    const origins = lines.flat()
+    const labelPos = lines.flat()
       .flatMap(g => origin);
 
     // 7. Collect all the glyph rects
-    const rects = lines.flat()
+    const sdfRect = lines.flat()
       .flatMap(g => Object.values(g.rect));
 
     // 8. Compute bounding box for collision checks
@@ -5394,20 +5487,28 @@ function initShaper(style) {
       (boxOrigin[1] + boxSize[1]) * scalar + textPadding
     ];
 
-    return { origins, deltas, rects, bbox };
+    return { labelPos, charPos, sdfRect, bbox };
   }
 }
 
 function initShaping(style) {
-  const shaper = initShaper(style);
+  const { layout, paint } = style;
 
-  return function(feature, zoom, atlas, tree) {
+  const shaper = initShaper(layout);
+
+  const dataFuncs = [
+    [paint["text-color"],   "color"],
+    [paint["text-opacity"], "opacity"],
+  ].filter(([get, key]) => get.type === "property");
+
+  return function(feature, tileCoords, atlas, tree) {
     // tree is an RBush from the 'rbush' module. NOTE: will be updated!
 
-    const buffers = shaper(feature, zoom, atlas);
+    const { z, x, y } = tileCoords;
+    const buffers = shaper(feature, z, atlas);
     if (!buffers) return;
 
-    let { origins: [x0, y0], bbox } = buffers;
+    let { labelPos: [x0, y0], bbox } = buffers;
     let box = {
       minX: x0 + bbox[0],
       minY: y0 + bbox[1],
@@ -5416,8 +5517,15 @@ function initShaping(style) {
     };
 
     if (tree.collides(box)) return;
-
     tree.insert(box);
+
+    const length = buffers.labelPos.length / 2;
+    buffers.tileCoords = Array.from({ length }).flatMap(v => [x, y, z]);
+
+    dataFuncs.forEach(([get, key]) => {
+      let val = get(null, feature);
+      buffers[key] = Array.from({ length }).flatMap(v => val);
+    });
 
     // TODO: drop if outside tile?
     return buffers;
@@ -5425,86 +5533,41 @@ function initShaping(style) {
 }
 
 function initSerializer(style) {
-  const { getLen, parse } = initParser(style);
-
-  return function(feature, tileCoords, atlas, tree) {
-    const { z, x, y } = tileCoords;
-
-    const buffers = parse(feature, z, atlas, tree);
-
-    if (buffers) buffers.tileCoords = Array
-      .from({ length: getLen(buffers) })
-      .flatMap(v => [x, y, z]);
-
-    return buffers;
-  };
-}
-
-function initParser(style) {
   switch (style.type) {
     case "circle":
-      return { 
-        getLen: (b) => b.points.length / 2,
-        parse: parseCircle,
-      };
+      return initCircleParsing(style);
     case "line":
-      return {
-        getLen: (b) => b.lines.length / 3,
-        parse: parseLine,
-      };
+      return initLineParsing(style);
     case "fill":
-      return {
-        getLen: (b) => b.vertices.length / 2,
-        parse: parseFill,
-      };
+      return initFillParsing(style);
     case "symbol":
-      return {
-        getLen: (b) => b.origins.length / 2,
-        parse: initShaping(style),
-      };
+      return initShaping(style);
     default:
       throw Error("tile-gl: unknown serializer type!");
   }
 }
 
-function initFeatureGrouper(style) {
-  // Find the names of the feature properties that affect rendering
-  const renderPropertyNames = Object.values(style.paint)
-    .filter(styleFunc => styleFunc.type === "property")
-    .map(styleFunc => styleFunc.property);
-
-  return function(features) {
-    // Group features that will be styled the same
-    const groups = {};
-    features.forEach(feature => {
-      // Keep only the properties relevant to rendering
-      let properties = renderPropertyNames
-        .reduce((d, k) => (d[k] = feature.properties[k], d), {});
-
-      // Look up the appropriate group, or create it if it doesn't exist
-      let key = Object.entries(properties).join();
-      if (!groups[key]) groups[key] = initFeature(feature, properties);
-
-      // Append this features buffers to the grouped feature
-      appendBuffers(groups[key].buffers, feature.buffers);
-    });
-
-    return Object.values(groups).map(makeTypedArrays);
-  };
-}
-
-function initFeature(template, renderProperties) {
-  const properties = Object.assign({}, renderProperties);
-  const buffers = Object.keys(template.buffers)
+function concatBuffers(features) {
+  // Create a new Array for each buffer
+  const arrays = Object.keys(features[0].buffers)
     .reduce((d, k) => (d[k] = [], d), {});
 
-  return { properties, buffers };
+  // Concatenate the buffers from all the features
+  features.forEach(f => appendBuffers(arrays, f.buffers));
+
+  // Convert to TypedArrays
+  return Object.entries(arrays).reduce((d, [key, buffer]) => {
+    d[key] = (key === "indices")
+      ? new Uint32Array(buffer)
+      : new Float32Array(buffer);
+    return d;
+  }, {});
 }
 
 function appendBuffers(buffers, newBuffers) {
   const appendix = Object.assign({}, newBuffers);
   if (buffers.indices) {
-    let indexShift = buffers.vertices.length / 2;
+    let indexShift = buffers.position.length / 2;
     appendix.indices = newBuffers.indices.map(i => i + indexShift);
   }
   Object.keys(buffers).forEach(k => {
@@ -5513,17 +5576,6 @@ function appendBuffers(buffers, newBuffers) {
     let base = buffers[k];
     appendix[k].forEach(a => base.push(a));
   });
-}
-
-function makeTypedArrays(feature) {
-  const { properties, buffers } = feature;
-  // Note: modifying in place!
-  Object.keys(buffers).forEach(key => {
-    buffers[key] = (key === "indices")
-      ? new Uint16Array(buffers[key])
-      : new Float32Array(buffers[key]);
-  });
-  return feature;
 }
 
 function quickselect(arr, k, left, right, compare) {
@@ -6116,21 +6168,20 @@ function initLayerSerializer(style) {
 
   if (!transform) return;
 
-  const compressor = initFeatureGrouper(style);
-
   return function(layer, tileCoords, atlas, tree) {
     let { type, extent, features } = layer;
 
     let transformed = features.map(feature => {
       let { properties, geometry } = feature;
       let buffers = transform(feature, tileCoords, atlas, tree);
+      // NOTE: if no buffers, we don't even want to keep the original
+      // feature--because it won't be visible to the user (not rendered)
       if (buffers) return { properties, geometry, buffers };
     }).filter(f => f !== undefined);
 
     if (!transformed.length) return;
 
-    const compressed = compressor(transformed);
-    const newLayer = { type, extent, compressed };
+    const newLayer = { type, extent, buffers: concatBuffers(transformed) };
 
     if (interactive) newLayer.features = transformed
       .map(({ properties, geometry }) => ({ properties, geometry }));
@@ -7485,27 +7536,21 @@ function sendTile(id, tile) {
 
   // Get a list of all the Transferable objects
   const transferables = Object.values(tile.layers)
-    .flatMap(layer => layer.compressed.flatMap(getFeatureBuffers));
+    .flatMap(l => Object.values(l.buffers).map(b => b.buffer));
   transferables.push(tile.atlas.data.buffer);
 
   postMessage({ id, type: "data", payload: tile }, transferables);
-}
-
-function getFeatureBuffers(feature) {
-  return Object.values(feature.buffers).map(b => b.buffer);
 }
 `;
 
 function initTileMixer(userParams) {
   const params = setParams$1(userParams);
-  const queue = params.queue;
+  const { queue, context: { loadBuffers, loadAtlas } } = params;
 
   // Initialize workers
   const workerPath = URL.createObjectURL( new Blob([workerCode]) );
   const workers = initWorkers(workerPath, params);
   URL.revokeObjectURL(workerPath);
-
-  const getPrepFuncs = initDataPrep(params.context);
 
   // Define request function
   function request({ z, x, y, getPriority, callback }) {
@@ -7524,6 +7569,18 @@ function initTileMixer(userParams) {
     }
 
     return reqHandle;
+  }
+
+  function getPrepFuncs(source, callback) {
+    const { atlas, layers } = source;
+
+    const prepTasks = Object.values(layers)
+      .map(l => () => { l.buffers = loadBuffers(l.buffers); });
+
+    if (atlas) prepTasks.push(() => { source.atlas = loadAtlas(atlas); });
+
+    prepTasks.push(() => callback(null, source));
+    return prepTasks;
   }
 
   // Return API
