@@ -20,10 +20,12 @@ export function initTileGrid({ key, source, tileCache }) {
     const tiles = layout(transform);
 
     // Update tile priorities based on the new grid
-    const metric = getTileMetric(layout, tiles);
+    const metric = getTileMetric(layout, tiles, 1.0);
     tileCache.process(tile => { tile.priority = metric(tile); });
-    numTiles = tileCache.drop(tile => metric(tile) > 0.75);
-    const stopCondition = ([z, x, y]) => metric({ z, x, y }) > 0.75;
+    numTiles = tileCache.drop(tile => tile.priority > 0.8);
+    const stopCondition = ([z, x, y]) => {
+      return outOfBounds(z, x, y) || metric({ z, x, y }) > 0.8;
+    };
 
     // Retrieve a tile box for every tile in the grid
     var tilesDone = 0;

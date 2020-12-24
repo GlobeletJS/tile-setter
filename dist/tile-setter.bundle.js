@@ -11,7 +11,9 @@ vec2 tileToMap(vec2 tilePos) {
   // Find distance of this tile from top left tile, in tile units
   float zoomFac = exp2(mapCoords.z - tileCoords.z);
   vec2 dTile = zoomFac * tileCoords.xy - mapCoords.xy;
-  dTile.x += (dTile.x < 0.0) ? exp2(mapCoords.z) : 0.0;
+  // tileCoords.x and mapCoords.x are both wrapped to the range [0..exp(z)]
+  // If the right edge of the tile is left of the map, we need to unwrap dTile
+  dTile.x += (dTile.x + zoomFac <= 0.0) ? exp2(mapCoords.z) : 0.0;
 
   // Convert to a translation in pixels
   vec2 tileTranslate = dTile * mapShift.z + mapShift.xy;
@@ -446,15 +448,12 @@ function initTilesetPainter(setGrid, zoomFuncs, paintTile) {
 }
 
 function initSetters(pairs, uniformSetters) {
-  function pair([get, key]) {
-    let set = uniformSetters[key];
-    return (z, f) => set(get(z, f));
-  }
-
-  return {
-    zoomFuncs: pairs.filter(p => p[0].type !== "property").map(pair),
-    dataFuncs: pairs.filter(p => p[0].type === "property").map(pair),
-  };
+  return pairs
+    .filter(([get]) => get.type !== "property")
+    .map(([get, key]) => {
+      let set = uniformSetters[key];
+      return (z, f) => set(get(z, f));
+    });
 }
 
 function initVectorTilePainter(context, layerId, setAtlas) {
@@ -506,7 +505,7 @@ function initCircle(context) {
   function initPainter(style) {
     const { id, paint } = style;
 
-    const { zoomFuncs, dataFuncs } = initSetters([
+    const zoomFuncs = initSetters([
       [paint["circle-radius"],  "radius"],
       [paint["circle-color"],   "color"],
       [paint["circle-opacity"], "opacity"],
@@ -685,7 +684,7 @@ function initLine(context) {
   function initPainter(style) {
     const { id, layout, paint } = style;
 
-    const { zoomFuncs, dataFuncs } = initSetters([
+    const zoomFuncs = initSetters([
       // TODO: move these to serialization step??
       //[layout["line-cap"],      "lineCap"],
       //[layout["line-join"],     "lineJoin"],
@@ -765,7 +764,7 @@ function initFill(context) {
   function initPainter(style) {
     const { id, paint } = style;
 
-    const { zoomFuncs, dataFuncs } = initSetters([
+    const zoomFuncs = initSetters([
       [paint["fill-color"],     "color"],
       [paint["fill-opacity"],   "opacity"],
       [paint["fill-translate"], "translation"],
@@ -863,7 +862,7 @@ function initText(context) {
   function initPainter(style) {
     const { id, paint } = style;
 
-    const { zoomFuncs, dataFuncs } = initSetters([
+    const zoomFuncs = initSetters([
       [paint["text-color"],   "color"],
       [paint["text-opacity"], "opacity"],
 
@@ -7904,10 +7903,12 @@ function initTileGrid({ key, source, tileCache }) {
     const tiles = layout(transform);
 
     // Update tile priorities based on the new grid
-    const metric = getTileMetric(layout, tiles);
+    const metric = getTileMetric(layout, tiles, 1.0);
     tileCache.process(tile => { tile.priority = metric(tile); });
-    numTiles = tileCache.drop(tile => metric(tile) > 0.75);
-    const stopCondition = ([z, x, y]) => metric({ z, x, y }) > 0.75;
+    numTiles = tileCache.drop(tile => tile.priority > 0.8);
+    const stopCondition = ([z, x, y]) => {
+      return outOfBounds(z, x, y) || metric({ z, x, y }) > 0.8;
+    };
 
     // Retrieve a tile box for every tile in the grid
     var tilesDone = 0;
