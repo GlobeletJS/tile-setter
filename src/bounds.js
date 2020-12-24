@@ -12,6 +12,7 @@ export function initBoundsCheck(source) {
   const radianBounds = bounds.map(c => c * Math.PI / 180.0);
   let [xmin, ymax] = mercator.forward(radianBounds.slice(0, 2));
   let [xmax, ymin] = mercator.forward(radianBounds.slice(2, 4));
+  // TODO: this looks weird? min/max is mathematical, regardless of scheme
   if (scheme === "tms") [ymin, ymax] = [ymax, ymin];
 
   return function(z, x, y) {

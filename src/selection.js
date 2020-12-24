@@ -32,8 +32,7 @@ export function initSelector(sources) {
     }, { distance: Infinity });
 
     // Threshold distance should be in units of screen pixels
-    // TODO: reference sw to 1?
-    const threshold = radius * extent / tileset.scale * tileBox.sw / tileSize;
+    const threshold = radius * extent / tileset.scale * tileBox.sw;
     if (distance > threshold) return;
 
     // Convert feature coordinates from tile XY units back to input units

@@ -9,8 +9,7 @@ export function initCaches({ context, glyphs }) {
   function addSource({ source, layers }) {
     const loader = initLoader(source, layers);
     const factory = buildFactory({ loader, reporter });
-    const { tileSize = 512 } = source;
-    return initCache({ create: factory, size: tileSize });
+    return initCache({ create: factory, size: 1.0 });
   }
 
   function initLoader(source, layers) {

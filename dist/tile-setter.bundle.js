@@ -7666,8 +7666,7 @@ function initCaches({ context, glyphs }) {
   function addSource({ source, layers }) {
     const loader = initLoader(source, layers);
     const factory = buildFactory({ loader, reporter });
-    const { tileSize = 512 } = source;
-    return initCache({ create: factory, size: tileSize });
+    return initCache({ create: factory, size: 1.0 });
   }
 
   function initLoader(source, layers) {
@@ -7728,6 +7727,7 @@ function initBoundsCheck(source) {
   const radianBounds = bounds.map(c => c * Math.PI / 180.0);
   let [xmin, ymax] = forward(radianBounds.slice(0, 2));
   let [xmax, ymin] = forward(radianBounds.slice(2, 4));
+  // TODO: this looks weird? min/max is mathematical, regardless of scheme
   if (scheme === "tms") [ymin, ymax] = [ymax, ymin];
 
   return function(z, x, y) {
@@ -7922,7 +7922,7 @@ function initTileGrid({ key, source, tileCache }) {
       let box = tileCache.retrieve([zw, xw, yw], stopCondition);
       if (!box) return;
 
-      tilesDone += (box.sw / tileSize) ** 2;
+      tilesDone += box.sw ** 2;
       return Object.assign(box, { x, y, z });
     }).filter(t => t !== undefined);
 
@@ -9248,8 +9248,7 @@ function initSelector(sources) {
     }, { distance: Infinity });
 
     // Threshold distance should be in units of screen pixels
-    // TODO: reference sw to 1?
-    const threshold = radius * extent / tileset.scale * tileBox.sw / tileSize;
+    const threshold = radius * extent / tileset.scale * tileBox.sw;
     if (distance > threshold) return;
 
     // Convert feature coordinates from tile XY units back to input units

@@ -38,7 +38,7 @@ export function initTileGrid({ key, source, tileCache }) {
       let box = tileCache.retrieve([zw, xw, yw], stopCondition);
       if (!box) return;
 
-      tilesDone += (box.sw / tileSize) ** 2;
+      tilesDone += box.sw ** 2;
       return Object.assign(box, { x, y, z });
     }).filter(t => t !== undefined);
 
