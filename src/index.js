@@ -50,7 +50,7 @@ function setup(styleDoc, params, api) {
 
   api.draw = function(pixRatio = 1) {
     const loadStatus = sources.loadTilesets(pixRatio);
-    render(sources.tilesets, api.getZoom(), pixRatio);
+    render(sources.tilesets, api.getZoom(pixRatio), pixRatio);
     return loadStatus;
   };
 
