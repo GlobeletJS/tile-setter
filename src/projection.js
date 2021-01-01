@@ -1,6 +1,28 @@
 // Maximum latitude for Web Mercator: 85.0113 degrees. Beware rounding!
 const maxMercLat = 2.0 * Math.atan( Math.exp(Math.PI) ) - Math.PI / 2.0;
 const clipLat = (lat) => Math.min(Math.max(-maxMercLat, lat), maxMercLat);
+const degrees = 180.0 / Math.PI;
+
+export function getProjection(units) {
+  switch (units) {
+    case "xy":
+      return { // Input coordinates already projected to XY
+        forward: p => p,
+        inverse: p => p,
+        scale: () => 1.0,
+      };
+    case "radians":
+      return mercator;
+    case "degrees":
+      return {
+        forward: (pt) => forward(pt.map(c => c / degrees)),
+        inverse: (pt) => inverse(pt).map(c => c * degrees),
+        scale: (pt) => scale(pt.map(c => c / degrees)),
+      };
+    default:
+      throw Error("getProjection: unknown units = " + units);
+  }
+}
 
 export function forward([lon, lat]) {
   // Convert input longitude in radians to a Web Mercator x-coordinate

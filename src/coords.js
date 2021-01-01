@@ -1,25 +1,26 @@
-import * as mercator from "./proj-mercator.js";
-
-export function initCoords({ size, center, zoom, clampY = true }) {
-  const degrees = 180 / Math.PI;
+export function initCoords({ size, center, zoom, clampY, projection }) {
   const minTileSize = 256;
   const logTileSize = Math.log2(minTileSize);
 
-  const transform = { k: 1, x: 0, y: 0 };
+  const transform = { 
+    k: 1, // Size of the world map, in pixels
+    x: 0, // Rightward shift of lon = 0 from left edge of viewport, in pixels
+    y: 0, // Downward shift of lat = 0 from top edge of viewport, in pixels
+  };
   const camPos = new Float64Array([0.5, 0.5]);
   const scale = new Float64Array([1.0, 1.0]);
 
   setCenterZoom(center, zoom);
 
   return {
-    setTransform,
-    setCenterZoom,
-
     getViewport,
-    getTransform: () => Object.assign({}, transform),
-    getZoom: () => Math.max(0, Math.log2(transform.k) - 9),
+    getTransform,
+    getZoom,
     getCamPos: () => camPos.slice(),
     getScale: () => scale.slice(),
+
+    setTransform,
+    setCenterZoom,
 
     localToGlobal,
   };
@@ -28,13 +29,22 @@ export function initCoords({ size, center, zoom, clampY = true }) {
     return [size.width / pixRatio, size.height / pixRatio];
   }
 
-  function setTransform(rawTransform) {
+  function getTransform(pixRatio = 1) {
+    return Object.entries(transform)
+      .reduce((d, [k, v]) => (d[k] = v / pixRatio, d), {});
+  }
+
+  function getZoom(pixRatio = 1) {
+    return Math.max(0, Math.log2(transform.k / pixRatio) - 9);
+  }
+
+  function setTransform(rawTransform, pixRatio = 1) {
     // Input transforms map coordinates [x, y] into viewport coordinates
     // Units are in pixels
     const { k: kRaw, x: xRaw, y: yRaw } = rawTransform;
 
     // Round kRaw to ensure tile pixels align with screen pixels
-    const z = Math.log2(kRaw) - logTileSize;
+    const z = Math.log2(kRaw * pixRatio) - logTileSize;
     const z0 = Math.floor(z);
     const tileScale = Math.round(2 ** (z - z0) * minTileSize);
     const kNew = clampY
@@ -68,13 +78,10 @@ export function initCoords({ size, center, zoom, clampY = true }) {
     return true;
   }
 
-  function setCenterZoom(c, z, units = 'degrees') {
+  function setCenterZoom(c, z) {
     let k = 512 * 2 ** z;
-    let lonLat = (units === 'degrees')
-      ? c.map(x => x / degrees)
-      : c;
-    let [xr, yr] = mercator.forward(lonLat);
-    
+
+    let [xr, yr] = projection.forward(c);
     let x = (0.5 - xr) * k + size.width / 2;
     let y = (0.5 - yr) * k + size.height / 2;
 

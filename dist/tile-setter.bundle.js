@@ -1,3 +1,159 @@
+// Maximum latitude for Web Mercator: 85.0113 degrees. Beware rounding!
+const maxMercLat = 2.0 * Math.atan( Math.exp(Math.PI) ) - Math.PI / 2.0;
+const clipLat = (lat) => Math.min(Math.max(-maxMercLat, lat), maxMercLat);
+const degrees = 180.0 / Math.PI;
+
+function getProjection(units) {
+  switch (units) {
+    case "xy":
+      return { // Input coordinates already projected to XY
+        forward: p => p,
+        inverse: p => p,
+        scale: () => 1.0,
+      };
+    case "radians":
+      return mercator;
+    case "degrees":
+      return {
+        forward: (pt) => forward(pt.map(c => c / degrees)),
+        inverse: (pt) => inverse(pt).map(c => c * degrees),
+        scale: (pt) => scale(pt.map(c => c / degrees)),
+      };
+    default:
+      throw Error("getProjection: unknown units = " + units);
+  }
+}
+
+function forward([lon, lat]) {
+  // Convert input longitude in radians to a Web Mercator x-coordinate
+  // where x = 0 at lon = -PI, x = 1 at lon = +PI
+  let x = 0.5 + 0.5 * lon / Math.PI;
+
+  // Convert input latitude in radians to a Web Mercator y-coordinate
+  // where y = 0 at lat = maxMercLat, y = 1 at lat = -maxMercLat
+  let y = 0.5 - 0.5 / Math.PI *
+    Math.log( Math.tan(Math.PI / 4.0 + clipLat(lat) / 2.0) );
+
+  // Clip y to the range [0, 1] (it does not wrap around)
+  y = Math.min(Math.max(0.0, y), 1.0);
+
+  return [x, y];
+}
+
+function inverse([x, y]) {
+  let lon = 2.0 * (x - 0.5) * Math.PI;
+  let lat = 2.0 * Math.atan(Math.exp(Math.PI * (1.0 - 2.0 * y))) - Math.PI / 2;
+
+  return [lon, lat];
+}
+
+function scale([lon, lat]) {
+  // Return value scales a (differential) distance along the plane tangent to
+  // the sphere at [lon, lat] to a distance in map coordinates.
+  // NOTE: ASSUMES a sphere of radius 1! Input distances should be
+  //  pre-normalized by the appropriate radius
+  return 1 / (2 * Math.PI * Math.cos( clipLat(lat) ));
+}
+
+function initCoords({ size, center, zoom, clampY, projection }) {
+  const minTileSize = 256;
+  const logTileSize = Math.log2(minTileSize);
+
+  const transform = { 
+    k: 1, // Size of the world map, in pixels
+    x: 0, // Rightward shift of lon = 0 from left edge of viewport, in pixels
+    y: 0, // Downward shift of lat = 0 from top edge of viewport, in pixels
+  };
+  const camPos = new Float64Array([0.5, 0.5]);
+  const scale = new Float64Array([1.0, 1.0]);
+
+  setCenterZoom(center, zoom);
+
+  return {
+    getViewport,
+    getTransform,
+    getZoom,
+    getCamPos: () => camPos.slice(),
+    getScale: () => scale.slice(),
+
+    setTransform,
+    setCenterZoom,
+
+    localToGlobal,
+  };
+
+  function getViewport(pixRatio = 1) {
+    return [size.width / pixRatio, size.height / pixRatio];
+  }
+
+  function getTransform(pixRatio = 1) {
+    return Object.entries(transform)
+      .reduce((d, [k, v]) => (d[k] = v / pixRatio, d), {});
+  }
+
+  function getZoom(pixRatio = 1) {
+    return Math.max(0, Math.log2(transform.k / pixRatio) - 9);
+  }
+
+  function setTransform(rawTransform, pixRatio = 1) {
+    // Input transforms map coordinates [x, y] into viewport coordinates
+    // Units are in pixels
+    const { k: kRaw, x: xRaw, y: yRaw } = rawTransform;
+
+    // Round kRaw to ensure tile pixels align with screen pixels
+    const z = Math.log2(kRaw * pixRatio) - logTileSize;
+    const z0 = Math.floor(z);
+    const tileScale = Math.round(2 ** (z - z0) * minTileSize);
+    const kNew = clampY
+      ? Math.max(2 ** z0 * tileScale, size.height)
+      : 2 ** z0 * tileScale;
+
+    // Adjust translation for the change in scale, and snap to pixel grid
+    const kScale = kNew / kRaw;
+    // Keep the same map pixel at the center of the viewport
+    const sx = kScale * xRaw + (1 - kScale) * size.width / 2;
+    const sy = kScale * yRaw + (1 - kScale) * size.height / 2;
+    // Limit Y so the map doesn't cross a pole
+    const yLim = clampY
+      ? Math.min(Math.max(-kNew / 2 + size.height, sy), kNew / 2)
+      : sy;
+    const [xNew, yNew] = [sx, yLim].map(Math.round);
+
+    // Make sure camera is still pointing at the original location: shift from 
+    // the center [0.5, 0.5] by the change in the translation due to rounding
+    camPos[0] = 0.5 + (xNew - sx) / size.width;
+    camPos[1] = 0.5 + (yNew - sy) / size.height;
+
+    // Store the scale of the current map relative to the entire world
+    scale[0] = kNew / size.width;
+    scale[1] = kNew / size.height;
+
+    // Return a flag indicating whether the transform changed
+    const { k: kOld, x: xOld, y: yOld } = transform;
+    if (kNew == kOld && xNew == xOld && yNew == yOld) return false;
+    Object.assign(transform, { k: kNew, x: xNew, y: yNew });
+    return true;
+  }
+
+  function setCenterZoom(c, z) {
+    let k = 512 * 2 ** z;
+
+    let [xr, yr] = projection.forward(c);
+    let x = (0.5 - xr) * k + size.width / 2;
+    let y = (0.5 - yr) * k + size.height / 2;
+
+    return setTransform({ k, x, y });
+  }
+
+  function localToGlobal([x, y]) {
+    // Convert local map pixels to global XY
+    let { x: tx, y: ty, k } = transform;
+    // tx, ty is the shift of the map center (in pixels) 
+    //   relative to the viewport origin (top left corner)
+    return [(x - tx) / k + 0.5, (y - ty) / k + 0.5];
+  }
+}
+
 var preamble = `precision highp float;
 
 attribute vec3 tileCoords;
@@ -985,138 +1141,6 @@ function initEventHandler() {
   };
 }
 
-// Maximum latitude for Web Mercator: 85.0113 degrees. Beware rounding!
-const maxMercLat = 2.0 * Math.atan( Math.exp(Math.PI) ) - Math.PI / 2.0;
-const clipLat = (lat) => Math.min(Math.max(-maxMercLat, lat), maxMercLat);
-
-function forward([lon, lat]) {
-  // Convert input longitude in radians to a Web Mercator x-coordinate
-  // where x = 0 at lon = -PI, x = 1 at lon = +PI
-  let x = 0.5 + 0.5 * lon / Math.PI;
-
-  // Convert input latitude in radians to a Web Mercator y-coordinate
-  // where y = 0 at lat = maxMercLat, y = 1 at lat = -maxMercLat
-  let y = 0.5 - 0.5 / Math.PI *
-    Math.log( Math.tan(Math.PI / 4.0 + clipLat(lat) / 2.0) );
-
-  // Clip y to the range [0, 1] (it does not wrap around)
-  y = Math.min(Math.max(0.0, y), 1.0);
-
-  return [x, y];
-}
-
-function inverse([x, y]) {
-  let lon = 2.0 * (x - 0.5) * Math.PI;
-  let lat = 2.0 * Math.atan(Math.exp(Math.PI * (1.0 - 2.0 * y))) - Math.PI / 2;
-
-  return [lon, lat];
-}
-
-function scale([lon, lat]) {
-  // Return value scales a (differential) distance along the plane tangent to
-  // the sphere at [lon, lat] to a distance in map coordinates.
-  // NOTE: ASSUMES a sphere of radius 1! Input distances should be
-  //  pre-normalized by the appropriate radius
-  return 1 / (2 * Math.PI * Math.cos( clipLat(lat) ));
-}
-
-var projection = /*#__PURE__*/Object.freeze({
-  __proto__: null,
-  forward: forward,
-  inverse: inverse,
-  scale: scale
-});
-
-function initCoords({ size, center, zoom, clampY = true }) {
-  const degrees = 180 / Math.PI;
-  const minTileSize = 256;
-  const logTileSize = Math.log2(minTileSize);
-
-  const transform = { k: 1, x: 0, y: 0 };
-  const camPos = new Float64Array([0.5, 0.5]);
-  const scale = new Float64Array([1.0, 1.0]);
-
-  setCenterZoom(center, zoom);
-
-  return {
-    setTransform,
-    setCenterZoom,
-
-    getViewport,
-    getTransform: () => Object.assign({}, transform),
-    getZoom: () => Math.max(0, Math.log2(transform.k) - 9),
-    getCamPos: () => camPos.slice(),
-    getScale: () => scale.slice(),
-
-    localToGlobal,
-  };
-
-  function getViewport(pixRatio = 1) {
-    return [size.width / pixRatio, size.height / pixRatio];
-  }
-
-  function setTransform(rawTransform) {
-    // Input transforms map coordinates [x, y] into viewport coordinates
-    // Units are in pixels
-    const { k: kRaw, x: xRaw, y: yRaw } = rawTransform;
-
-    // Round kRaw to ensure tile pixels align with screen pixels
-    const z = Math.log2(kRaw) - logTileSize;
-    const z0 = Math.floor(z);
-    const tileScale = Math.round(2 ** (z - z0) * minTileSize);
-    const kNew = clampY
-      ? Math.max(2 ** z0 * tileScale, size.height)
-      : 2 ** z0 * tileScale;
-
-    // Adjust translation for the change in scale, and snap to pixel grid
-    const kScale = kNew / kRaw;
-    // Keep the same map pixel at the center of the viewport
-    const sx = kScale * xRaw + (1 - kScale) * size.width / 2;
-    const sy = kScale * yRaw + (1 - kScale) * size.height / 2;
-    // Limit Y so the map doesn't cross a pole
-    const yLim = clampY
-      ? Math.min(Math.max(-kNew / 2 + size.height, sy), kNew / 2)
-      : sy;
-    const [xNew, yNew] = [sx, yLim].map(Math.round);
-
-    // Make sure camera is still pointing at the original location: shift from 
-    // the center [0.5, 0.5] by the change in the translation due to rounding
-    camPos[0] = 0.5 + (xNew - sx) / size.width;
-    camPos[1] = 0.5 + (yNew - sy) / size.height;
-
-    // Store the scale of the current map relative to the entire world
-    scale[0] = kNew / size.width;
-    scale[1] = kNew / size.height;
-
-    // Return a flag indicating whether the transform changed
-    const { k: kOld, x: xOld, y: yOld } = transform;
-    if (kNew == kOld && xNew == xOld && yNew == yOld) return false;
-    Object.assign(transform, { k: kNew, x: xNew, y: yNew });
-    return true;
-  }
-
-  function setCenterZoom(c, z, units = 'degrees') {
-    let k = 512 * 2 ** z;
-    let lonLat = (units === 'degrees')
-      ? c.map(x => x / degrees)
-      : c;
-    let [xr, yr] = forward(lonLat);
-    
-    let x = (0.5 - xr) * k + size.width / 2;
-    let y = (0.5 - yr) * k + size.height / 2;
-
-    return setTransform({ k, x, y });
-  }
-
-  function localToGlobal([x, y]) {
-    // Convert local map pixels to global XY
-    let { x: tx, y: ty, k } = transform;
-    // tx, ty is the shift of the map center (in pixels) 
-    //   relative to the viewport origin (top left corner)
-    return [(x - tx) / k + 0.5, (y - ty) / k + 0.5];
-  }
-}
-
 function setParams(userParams) {
   const gl = userParams.gl;
   if (!(gl instanceof WebGLRenderingContext)) {
@@ -1126,11 +1150,12 @@ function setParams(userParams) {
   const { 
     framebuffer = null,
     size = gl.canvas,
-    center = [0.0, 0.0],
+    center = [0.0, 0.0], // ASSUMED to be in degrees!
     zoom = 4,
     style,
     mapboxToken,
     clampY = true,
+    units = 'degrees',
   } = userParams;
 
   if (!(framebuffer instanceof WebGLFramebuffer) && framebuffer !== null) {
@@ -1149,9 +1174,18 @@ function setParams(userParams) {
     fail$1("invalid zoom value");
   }
 
+  const validUnits = ["degrees", "radians", "xy"];
+  if (!validUnits.includes(units)) fail$1("invalid units");
+  const projection = getProjection(units);
+
+  // Convert initial center position from degrees to the specified units
+  const projCenter = getProjection("degrees").forward(center);
+  const invCenter = projection.inverse(projCenter);
+
   return {
     gl, framebuffer, size,
-    coords: initCoords({ size, center, zoom, clampY }),
+    projection,
+    coords: initCoords({ size, center: invCenter, zoom, clampY, projection }),
     style, mapboxToken,
     context: initGLpaint(gl, framebuffer, size),
     eventHandler: initEventHandler(),
@@ -7957,7 +7991,7 @@ function initSources(style, context, coords) {
   }).filter(s => s !== undefined);
 
   function loadTilesets(pixRatio = 1) {
-    const transform = coords.getTransform();
+    const transform = coords.getTransform(pixRatio);
     const viewport = coords.getViewport(pixRatio);
     grids.forEach(grid => {
       // Make sure data from this source is still being displayed
@@ -8001,19 +8035,7 @@ function initRenderer(context, style) {
   };
 }
 
-const degrees = 180.0 / Math.PI;
-
-function getTileIndices(point, zoom, units) {
-  // Convert point to global XY coordinates
-  const xy = getProjection(units).forward(point);
-
-  // Return the indices of the tile containing this XY
-  const nTiles = 2 ** zoom;
-  return xy.map(c => Math.floor(c * nTiles));
-}
-
-function getTileTransform(tile, extent, units) {
-  const projection = getProjection(units);
+function getTileTransform(tile, extent, projection) {
   const { z, x, y } = tile;
   const nTiles = 2 ** z;
   const translate = [x, y];
@@ -8030,25 +8052,6 @@ function getTileTransform(tile, extent, units) {
     forward: (pt) => transform.forward(projection.forward(pt)),
     inverse: (pt) => projection.inverse(transform.inverse(pt)),
   };
-}
-
-function getProjection(units) {
-  switch (units) {
-    case "xy":
-      return { // Input coordinates already projected to XY
-        forward: p => p,
-        inverse: p => p,
-      };
-    case "radians":
-      return projection;
-    case "degrees":
-      return {
-        forward: (pt) => forward(pt.map(c => c / degrees)),
-        inverse: (pt) => inverse(pt).map(c => c * degrees),
-      };
-    default:
-      throw Error("getProjection: unknown units = " + units);
-  }
 }
 
 function transformFeatureCoords(feature, transform) {
@@ -9219,15 +9222,17 @@ function inBBox(pt, bbox) {
 
 var booleanPointInPolygon = unwrapExports(booleanPointInPolygon_1);
 
-function initSelector(sources) {
+function initSelector(sources, projection) {
   const tileSize = 512; // TODO: don't assume this
 
-  return function({ layer, point, radius = 5, units = "xy" }) {
+  return function({ layer, point, radius = 5 }) {
     const tileset = sources.getLayerTiles(layer);
     if (!tileset || !tileset.length) return;
 
     // Find the tile, and get the layer features
-    const [ix, iy] = getTileIndices(point, tileset[0].z, units);
+    const nTiles = 2 ** tileset[0].z;
+    const [ix, iy] = projection.forward(point)
+      .map(c => Math.floor(c * nTiles));
     const tileBox = tileset.find(({ x, y }) => x == ix && y == iy);
     if (!tileBox) return;
     const dataLayer = tileBox.tile.data.layers[layer];
@@ -9238,7 +9243,7 @@ function initSelector(sources) {
     if (!features || !features.length) return;
 
     // Convert point to tile coordinates
-    const transform = getTileTransform(tileBox.tile, extent, units);
+    const transform = getTileTransform(tileBox.tile, extent, projection);
     const tileXY = transform.forward(point);
 
     // Find the nearest feature
@@ -9278,7 +9283,7 @@ function init$2(userParams) {
   // Set up dummy API
   const api = {
     gl: params.gl,
-    projection,
+    projection: params.projection,
     draw: () => null,
     select: () => null,
     when: params.eventHandler.addListener,
@@ -9322,7 +9327,7 @@ function setup(styleDoc, params, api) {
     return loadStatus;
   };
 
-  api.select = initSelector(sources);
+  api.select = initSelector(sources, params.projection);
   
   return api;
 }

@@ -1,16 +1,18 @@
-import { getTileIndices, getTileTransform } from "./tile-coords.js";
+import { getTileTransform } from "./tile-coords.js";
 import { transformFeatureCoords } from "./feature-coords.js";
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 
-export function initSelector(sources) {
+export function initSelector(sources, projection) {
   const tileSize = 512; // TODO: don't assume this
 
-  return function({ layer, point, radius = 5, units = "xy" }) {
+  return function({ layer, point, radius = 5 }) {
     const tileset = sources.getLayerTiles(layer);
     if (!tileset || !tileset.length) return;
 
     // Find the tile, and get the layer features
-    const [ix, iy] = getTileIndices(point, tileset[0].z, units);
+    const nTiles = 2 ** tileset[0].z;
+    const [ix, iy] = projection.forward(point)
+      .map(c => Math.floor(c * nTiles));
     const tileBox = tileset.find(({ x, y }) => x == ix && y == iy);
     if (!tileBox) return;
     const dataLayer = tileBox.tile.data.layers[layer];
@@ -21,7 +23,7 @@ export function initSelector(sources) {
     if (!features || !features.length) return;
 
     // Convert point to tile coordinates
-    const transform = getTileTransform(tileBox.tile, extent, units);
+    const transform = getTileTransform(tileBox.tile, extent, projection);
     const tileXY = transform.forward(point);
 
     // Find the nearest feature

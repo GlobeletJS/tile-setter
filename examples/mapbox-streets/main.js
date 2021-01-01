@@ -14,7 +14,7 @@ export function main() {
   tileMap.init({
     gl,
     center: [-73.885, 40.745],
-    zoom: 9,
+    zoom: 9 + Math.log2(window.devicePixelRatio),
     //style: "mapbox://styles/mapbox/streets-v8",
     style: "./streets-v8-noInteractive.json",
     mapboxToken: "pk.eyJ1IjoiamhlbWJkIiwiYSI6ImNqcHpueHpyZjBlMjAzeG9kNG9oNzI2NTYifQ.K7fqhk2Z2YZ8NIV94M-5nA",
@@ -26,7 +26,7 @@ function setup(api) {
   const viewport = api.getViewport(window.devicePixelRatio);
   const canvas = api.gl.canvas;
 
-  const { k, x, y } = api.getTransform();
+  const { k, x, y } = api.getTransform(window.devicePixelRatio);
   var transform = zoomIdentity
     .translate(x, y)
     .scale(k);
@@ -49,7 +49,7 @@ function setup(api) {
   function animate(time) {
     let pixRatio = window.devicePixelRatio;
     let resized = yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
-    api.setTransform(transform);
+    api.setTransform(transform, pixRatio);
     const percent = api.draw(pixRatio) * 100;
     loadStatus.innerHTML = (percent < 100)
       ? "Loading: " + percent.toFixed(0) + "%"

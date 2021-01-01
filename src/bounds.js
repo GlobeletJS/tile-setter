@@ -1,4 +1,4 @@
-import * as mercator from "./proj-mercator.js";
+import { forward } from "./projection.js";
 
 export function initBoundsCheck(source) {
   const {
@@ -10,8 +10,8 @@ export function initBoundsCheck(source) {
 
   // Convert bounds to Web Mercator (the projection ASSUMED by tilejson-spec)
   const radianBounds = bounds.map(c => c * Math.PI / 180.0);
-  let [xmin, ymax] = mercator.forward(radianBounds.slice(0, 2));
-  let [xmax, ymin] = mercator.forward(radianBounds.slice(2, 4));
+  let [xmin, ymax] = forward(radianBounds.slice(0, 2));
+  let [xmax, ymin] = forward(radianBounds.slice(2, 4));
   // TODO: this looks weird? min/max is mathematical, regardless of scheme
   if (scheme === "tms") [ymin, ymax] = [ymax, ymin];
 

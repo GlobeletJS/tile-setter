@@ -21,7 +21,7 @@ export function initSources(style, context, coords) {
   }).filter(s => s !== undefined);
 
   function loadTilesets(pixRatio = 1) {
-    const transform = coords.getTransform();
+    const transform = coords.getTransform(pixRatio);
     const viewport = coords.getViewport(pixRatio);
     grids.forEach(grid => {
       // Make sure data from this source is still being displayed

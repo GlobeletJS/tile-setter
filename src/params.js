@@ -1,6 +1,7 @@
+import { getProjection } from "./projection.js";
+import { initCoords } from "./coords.js";
 import { initGLpaint } from 'tile-gl';
 import { initEventHandler } from "./events.js";
-import { initCoords } from "./coords.js";
 
 export function setParams(userParams) {
   const gl = userParams.gl;
@@ -11,11 +12,12 @@ export function setParams(userParams) {
   const { 
     framebuffer = null,
     size = gl.canvas,
-    center = [0.0, 0.0],
+    center = [0.0, 0.0], // ASSUMED to be in degrees!
     zoom = 4,
     style,
     mapboxToken,
     clampY = true,
+    units = 'degrees',
   } = userParams;
 
   if (!(framebuffer instanceof WebGLFramebuffer) && framebuffer !== null) {
@@ -34,9 +36,18 @@ export function setParams(userParams) {
     fail("invalid zoom value");
   }
 
+  const validUnits = ["degrees", "radians", "xy"];
+  if (!validUnits.includes(units)) fail("invalid units");
+  const projection = getProjection(units);
+
+  // Convert initial center position from degrees to the specified units
+  const projCenter = getProjection("degrees").forward(center);
+  const invCenter = projection.inverse(projCenter);
+
   return {
     gl, framebuffer, size,
-    coords: initCoords({ size, center, zoom, clampY }),
+    projection,
+    coords: initCoords({ size, center: invCenter, zoom, clampY, projection }),
     style, mapboxToken,
     context: initGLpaint(gl, framebuffer, size),
     eventHandler: initEventHandler(),

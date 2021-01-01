@@ -14,6 +14,7 @@ export function main() {
     zoom: 7,
     style: "./light-wells.json",
     mapboxToken: "pk.eyJ1IjoiamhlbWJkIiwiYSI6ImNqcHpueHpyZjBlMjAzeG9kNG9oNzI2NTYifQ.K7fqhk2Z2YZ8NIV94M-5nA",
+    units: "xy",
   }).promise.then(setup)
     .catch(console.log);
 }
