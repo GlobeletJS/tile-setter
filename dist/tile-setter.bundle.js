@@ -12,7 +12,11 @@ function getProjection(units) {
         scale: () => 1.0,
       };
     case "radians":
-      return mercator;
+      return { 
+        forward, 
+        inverse, 
+        scale,
+      };
     case "degrees":
       return {
         forward: (pt) => forward(pt.map(c => c / degrees)),
