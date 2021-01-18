@@ -8,20 +8,20 @@ export function main() {
   yawgl.resizeCanvasToDisplaySize(canvas, window.devicePixelRatio);
 
   const gl = yawgl.getExtendedContext(canvas);
+  const context = yawgl.initContext(gl);
 
   tileMap.init({
-    gl,
+    context,
     center: [-85.0, 36.0],
     zoom: 7,
     style: "./light-macrostrat.json",
     mapboxToken: "pk.eyJ1IjoiamhlbWJkIiwiYSI6ImNqcHpueHpyZjBlMjAzeG9kNG9oNzI2NTYifQ.K7fqhk2Z2YZ8NIV94M-5nA",
-  }).promise.then(setup)
+  }).promise.then(api => setup(api, canvas))
     .catch(console.log);
 }
 
-function setup(api) {
+function setup(api, canvas) {
   const viewport = api.getViewport(window.devicePixelRatio);
-  const canvas = api.gl.canvas;
 
   const { k, x, y } = api.getTransform();
   var transform = zoomIdentity

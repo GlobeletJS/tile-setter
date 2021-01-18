@@ -7,19 +7,19 @@ export function main() {
   yawgl.resizeCanvasToDisplaySize(canvas, window.devicePixelRatio);
 
   const gl = yawgl.getExtendedContext(canvas);
+  const context = yawgl.initContext(gl);
 
   tileMap.init({ 
-    gl,
+    context,
     center: [-73.885, 40.745],
-    zoom: 9,
+    zoom: 9 + Math.log2(window.devicePixelRatio),
     style: "./klokantech-basic-style.json", 
-  }).promise.then(setup)
+  }).promise.then(api => setup(api, canvas))
     .catch(console.log);
 }
 
-function setup(api) {
+function setup(api, canvas) {
   const viewport = api.getViewport(window.devicePixelRatio);
-  const canvas = api.gl.canvas;
 
   const { k, x, y } = api.getTransform();
   var transform = d3.zoomIdentity

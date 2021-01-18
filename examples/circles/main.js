@@ -7,21 +7,21 @@ export function main() {
   yawgl.resizeCanvasToDisplaySize(canvas, window.devicePixelRatio);
 
   const gl = yawgl.getExtendedContext(canvas);
+  const context = yawgl.initContext(gl);
 
   tileMap.init({
-    gl,
+    context,
     center: [-100, 31],
-    zoom: 7,
+    zoom: 7 + Math.log2(window.devicePixelRatio),
     style: "./light-wells.json",
     mapboxToken: "pk.eyJ1IjoiamhlbWJkIiwiYSI6ImNqcHpueHpyZjBlMjAzeG9kNG9oNzI2NTYifQ.K7fqhk2Z2YZ8NIV94M-5nA",
     units: "xy",
-  }).promise.then(setup)
+  }).promise.then(api => setup(api, canvas))
     .catch(console.log);
 }
 
-function setup(api) {
+function setup(api, canvas) {
   const viewport = api.getViewport(window.devicePixelRatio);
-  const canvas = api.gl.canvas;
 
   const { k, x, y } = api.getTransform();
   var transform = d3.zoomIdentity

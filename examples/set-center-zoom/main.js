@@ -6,15 +6,15 @@ export function main() {
   yawgl.resizeCanvasToDisplaySize(canvas, window.devicePixelRatio);
 
   const gl = yawgl.getExtendedContext(canvas);
+  const context = yawgl.initContext(gl);
 
-  tileMap.init({ gl, style: "./klokantech-basic-style.json" })
-    .promise.then(setup)
+  tileMap.init({ context, style: "./klokantech-basic-style.json" })
+    .promise.then(api => setup(api, canvas))
     .catch(console.log);
 }
 
-function setup(api) {
+function setup(api, canvas) {
   const viewport = api.getViewport(window.devicePixelRatio);
-  const canvas = api.gl.canvas;
 
   const loadStatus = document.getElementById("loadStatus");
   const control = {

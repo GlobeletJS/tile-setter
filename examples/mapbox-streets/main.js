@@ -1,6 +1,4 @@
 import * as yawgl from 'yawgl';
-//import * as d3 from 'd3';
-//import { zoomIdentity, zoom, select } from 'd3';
 import { zoomIdentity, zoom } from 'd3-zoom';
 import { select } from 'd3-selection';
 import * as tileMap from "../../dist/tile-setter.bundle.js";
@@ -10,21 +8,21 @@ export function main() {
   yawgl.resizeCanvasToDisplaySize(canvas, window.devicePixelRatio);
 
   const gl = yawgl.getExtendedContext(canvas);
+  const context = yawgl.initContext(gl);
 
   tileMap.init({
-    gl,
+    context,
     center: [-73.885, 40.745],
     zoom: 9 + Math.log2(window.devicePixelRatio),
     //style: "mapbox://styles/mapbox/streets-v8",
     style: "./streets-v8-noInteractive.json",
     mapboxToken: "pk.eyJ1IjoiamhlbWJkIiwiYSI6ImNqcHpueHpyZjBlMjAzeG9kNG9oNzI2NTYifQ.K7fqhk2Z2YZ8NIV94M-5nA",
-  }).promise.then(setup)
+  }).promise.then(api => setup(api, canvas))
     .catch(console.log);
 }
 
-function setup(api) {
+function setup(api, canvas) {
   const viewport = api.getViewport(window.devicePixelRatio);
-  const canvas = api.gl.canvas;
 
   const { k, x, y } = api.getTransform(window.devicePixelRatio);
   var transform = zoomIdentity

@@ -4,14 +4,14 @@ import { initGLpaint } from 'tile-gl';
 import { initEventHandler } from "./events.js";
 
 export function setParams(userParams) {
-  const gl = userParams.gl;
+  const gl = userParams.context.gl;
   if (!(gl instanceof WebGLRenderingContext)) {
     fail("no valid WebGL context");
   }
 
-  const { 
-    framebuffer = null,
-    size = gl.canvas,
+  const {
+    context,
+    framebuffer = { buffer: null, size: gl.canvas },
     center = [0.0, 0.0], // ASSUMED to be in degrees!
     zoom = 4,
     style,
@@ -20,7 +20,8 @@ export function setParams(userParams) {
     units = 'degrees',
   } = userParams;
 
-  if (!(framebuffer instanceof WebGLFramebuffer) && framebuffer !== null) {
+  const { buffer, size } = framebuffer;
+  if (!(buffer instanceof WebGLFramebuffer) && buffer !== null) {
     fail("no valid framebuffer");
   }
 
@@ -45,17 +46,17 @@ export function setParams(userParams) {
   const invCenter = projection.inverse(projCenter);
 
   return {
-    gl, framebuffer, size,
+    gl, framebuffer,
     projection,
     coords: initCoords({ size, center: invCenter, zoom, clampY, projection }),
     style, mapboxToken,
-    context: initGLpaint(gl, framebuffer, size),
+    context: initGLpaint(context, framebuffer),
     eventHandler: initEventHandler(),
   };
 }
 
 function fail(message) {
-  throw Error("vector-map parameter check: " + message + "!");
+  throw Error("tile-setter parameter check: " + message + "!");
 }
 
 function allPosInts(...vals) {
