@@ -29,7 +29,7 @@ export function setParams(userParams) {
     fail("invalid size object");
   }
 
-  if (!Array.isArray(center) || !all0to1(...center.slice(2))) {
+  if (!Array.isArray(center) || center.length < 2) {
     fail("invalid center coordinates");
   }
 
@@ -43,6 +43,7 @@ export function setParams(userParams) {
 
   // Convert initial center position from degrees to the specified units
   const projCenter = getProjection("degrees").forward(center);
+  if (!all0to1(...projCenter)) fail ("invalid center coordinates");
   const invCenter = projection.inverse(projCenter);
 
   return {
