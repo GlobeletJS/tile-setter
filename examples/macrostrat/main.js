@@ -1,7 +1,7 @@
 import * as yawgl from 'yawgl';
 import { zoomIdentity, zoom } from 'd3-zoom';
 import { select } from 'd3-selection';
-import * as tileMap from "../../dist/tile-setter.bundle.js";
+import * as tileMap from "../../";
 
 export function main() {
   const canvas = document.getElementById("mapCanvas");

@@ -1,5 +1,5 @@
-import resolve from 'rollup-plugin-node-resolve';
-import commonjs from 'rollup-plugin-commonjs'; // Yuck. Needed for @turf!!
+import resolve from '@rollup/plugin-node-resolve';
+import commonjs from '@rollup/plugin-commonjs'; // Yuck. Needed for @turf!!
 import { glsl } from "./glsl-plugin.js";
 import pkg from "../package.json";
 

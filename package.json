@@ -2,7 +2,7 @@
   "name": "tile-setter",
   "version": "0.0.5",
   "description": "Tiled vector map powered by a lightweight WebGL renderer",
-  "main": "dist/tile-setter.bundle.js",
+  "main": "dist/tile-setter.js",
   "directories": {},
   "files": [
     "dist"
@@ -31,19 +31,19 @@
   },
   "homepage": "https://github.com/GlobeletJS/tile-setter#readme",
   "devDependencies": {
+    "@rollup/plugin-commonjs": "^19.0.0",
+    "@rollup/plugin-node-resolve": "^13.0.0",
     "@turf/boolean-point-in-polygon": "^6.0.1",
     "d3": "^6.2.0",
-    "rollup": "^2.33.2",
-    "rollup-plugin-commonjs": "^10.1.0",
-    "rollup-plugin-node-resolve": "^5.2.0",
-    "yawgl": "github:GlobeletJS/yawgl"
+    "rollup": "^2.52.6",
+    "yawgl": "^0.3.1"
   },
   "dependencies": {
     "chunked-queue": "^0.1.2",
     "d3-tile": "github:GlobeletJS/d3-tile",
-    "tile-gl": "github:GlobeletJS/tile-gl",
-    "tile-mixer": "github:GlobeletJS/tile-mixer",
+    "tile-gl": "^0.1.0",
+    "tile-mixer": "^0.1.0",
     "tile-rack": "^1.0.2",
-    "tile-stencil": "^0.3.1"
+    "tile-stencil": "^0.4.2"
   }
 }

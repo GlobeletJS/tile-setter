@@ -2,10 +2,10 @@
 
 Tiled vector map powered by a lightweight WebGL renderer
 
-Rendering is guided by a [Mapbox style document][]. See a simple
+Rendering is guided by a [MapLibre style document][MapLibre]. See a simple
 [example][] using a style from [OpenMapTiles][].
 
-[Mapbox style document]: https://docs.mapbox.com/mapbox-gl-js/style-spec/
+[MapLibre]: https://maplibre.org/maplibre-gl-js-docs/style-spec/
 [example]: https://globeletjs.github.io/tile-setter/examples/klokan-basic/index.html
 [OpenMapTiles]: https://openmaptiles.org/styles/
 
@@ -32,7 +32,7 @@ The supplied parameters object has the following properties:
 - `center`: The initial center of the map, given as [longitude, latitude]
   in degrees. Default: [0.0, 0.0]
 - `zoom`: The initial zoom of the map. Default: 4
-- `style` (REQUIRED): A link to a Mapbox style document
+- `style` (REQUIRED): A link to a MapLibre style document
 - `mapboxToken`: Your API token for Mapbox services (if needed)
 - `clampY`: If true (default), the scale and Y-coordinate of the map will be
   adjusted to ensure the viewport is not crossing the North or South limits of
@@ -83,7 +83,7 @@ The returned map object exposes the following properties and methods:
 - `localToGlobal([x, y])`: converts pixel coordinates [x, y] within 
   the current map to global XY
 
-- `promise`: A Promise that resolves to an updated API, after the Mapbox
+- `promise`: A Promise that resolves to an updated API, after the MapLibre
   style document (supplied on init) is fully loaded and parsed
 - `draw()`: Returns `null` until `map.promise` resolves
 - `select()`: Returns `null` until `map.promise` resolves
@@ -94,10 +94,12 @@ initialization (*synchronously*). After `map.promise` resolves, the following
 methods are updated or added:
 - `draw(pixRatio)`: Draws the map for the supplied transform. Parameter 
   `pixRatio` is the number of renderbuffer pixels per CSS pixel, e.g., 
-   as returned by [window.devicePixelRatio][]
+   as returned by [window.devicePixelRatio][]. Returns a fractional number
+   (from 0.0 to 1.0) indicating the loading status, expressed as a
+   fraction of the tiles that are needed to render the current view
 - `select(params)`: Finds map features near a given location. The `params`
   object has the following properties:
-   - `layer` (String): The name of the layer in the Mapbox style document 
+   - `layer` (String): The name of the layer in the MapLibre style document 
      containing the features to be queried
    - `point` (Array): The location to be queried, specified as a 2-element 
      Array of coordinates, in the units specified on initialization

@@ -1,6 +1,6 @@
 import * as yawgl from 'yawgl';
 import * as d3 from 'd3';
-import * as tileMap from "../../dist/tile-setter.bundle.js";
+import * as tileMap from "../../";
 
 export function main() {
   const canvas = document.getElementById("mapCanvas");
