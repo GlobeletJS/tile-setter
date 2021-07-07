@@ -9,7 +9,7 @@ export function initEventHandler() {
   function emitEvent(type, data = "1") {
     events[type] = data;
 
-    let audience = listeners[type];
+    const audience = listeners[type];
     if (!audience) return;
 
     Object.values(audience).forEach(listener => listener(data));
@@ -18,15 +18,15 @@ export function initEventHandler() {
   function addListener(type, listener) {
     if (!listeners[type]) listeners[type] = {};
 
-    let id = ++globalID;
+    const id = ++globalID;
     listeners[type][id] = listener;
-    
+
     if (events[type]) listener(events[type]);
     return id;
   }
 
   function removeListener(type, id) {
-    let audience = listeners[type];
+    const audience = listeners[type];
     if (audience) delete audience[id];
   }
 

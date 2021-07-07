@@ -2,7 +2,7 @@ export function initCoords({ size, center, zoom, clampY, projection }) {
   const minTileSize = 256;
   const logTileSize = Math.log2(minTileSize);
 
-  const transform = { 
+  const transform = {
     k: 1, // Size of the world map, in pixels
     x: 0, // Rightward shift of lon = 0 from left edge of viewport, in pixels
     y: 0, // Downward shift of lat = 0 from top edge of viewport, in pixels
@@ -64,7 +64,7 @@ export function initCoords({ size, center, zoom, clampY, projection }) {
       : sy;
     const [xNew, yNew] = [sx, yLim].map(Math.round);
 
-    // Make sure camera is still pointing at the original location: shift from 
+    // Make sure camera is still pointing at the original location: shift from
     // the center [0.5, 0.5] by the change in the translation due to rounding
     camPos[0] = 0.5 + (xNew - sx) / size.width;
     camPos[1] = 0.5 + (yNew - sy) / size.height;
@@ -81,19 +81,19 @@ export function initCoords({ size, center, zoom, clampY, projection }) {
   }
 
   function setCenterZoom(c, z) {
-    let k = 512 * 2 ** z;
+    const k = 512 * 2 ** z;
 
-    let [xr, yr] = projection.forward(c);
-    let x = (0.5 - xr) * k + size.width / 2;
-    let y = (0.5 - yr) * k + size.height / 2;
+    const [xr, yr] = projection.forward(c);
+    const x = (0.5 - xr) * k + size.width / 2;
+    const y = (0.5 - yr) * k + size.height / 2;
 
     return setTransform({ k, x, y });
   }
 
   function localToGlobal([x, y]) {
     // Convert local map pixels to global XY
-    let { x: tx, y: ty, k } = transform;
-    // tx, ty is the shift of the map center (in pixels) 
+    const { x: tx, y: ty, k } = transform;
+    // tx, ty is the shift of the map center (in pixels)
     //   relative to the viewport origin (top left corner)
     return [(x - tx) / k + 0.5, (y - ty) / k + 0.5];
   }

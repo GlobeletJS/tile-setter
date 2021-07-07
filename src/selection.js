@@ -1,6 +1,6 @@
 import { getTileTransform } from "./tile-coords.js";
 import { transformFeatureCoords } from "./feature-coords.js";
-import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
+import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 
 export function initSelector(sources, projection) {
   const tileSize = 512; // TODO: don't assume this
@@ -17,7 +17,7 @@ export function initSelector(sources, projection) {
     if (!tileBox) return;
     const dataLayer = tileBox.tile.data.layers[layer];
     if (!dataLayer) return;
-    //const { features, extent = tileSize } = dataLayer;
+    // const { features, extent = tileSize } = dataLayer;
     const { features } = dataLayer;
     const extent = tileSize; // TODO: use data extent
     if (!features || !features.length) return;
@@ -28,7 +28,7 @@ export function initSelector(sources, projection) {
 
     // Find the nearest feature
     const { distance, feature } = features.reduce((nearest, feature) => {
-      let distance = measureDistance(tileXY, feature.geometry);
+      const distance = measureDistance(tileXY, feature.geometry);
       if (distance < nearest.distance) nearest = { distance, feature };
       return nearest;
     }, { distance: Infinity });
@@ -47,12 +47,16 @@ export function measureDistance(pt, geometry) {
 
   switch (type) {
     case "Point":
-      let [x, y] = coordinates;
-      return Math.sqrt((x - pt[0]) ** 2 + (y - pt[1]) ** 2);
+      return distToPoint(coordinates, pt);
     case "Polygon":
     case "MultiPolygon":
       return booleanPointInPolygon(pt, geometry) ? 0 : Infinity;
     default:
       return; // Unknown feature type!
   }
+}
+
+function distToPoint(coords, pt) {
+  const [x, y] = coords;
+  return Math.sqrt((x - pt[0]) ** 2 + (y - pt[1]) ** 2);
 }

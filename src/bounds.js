@@ -19,10 +19,10 @@ export function initBoundsCheck(source) {
     // Return true if out of bounds
     if (z < minzoom || maxzoom < z) return true;
 
-    let zFac = 1 / 2 ** z;
+    const zFac = 1 / 2 ** z;
     if ((x + 1) * zFac < xmin || xmax < x * zFac) return true;
     if ((y + 1) * zFac < ymin || ymax < y * zFac) return true;
 
     return false;
-  }
+  };
 }

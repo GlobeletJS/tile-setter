@@ -1,9 +1,9 @@
 export function getTileMetric(layout, tileset, padding = 0.595) {
+  const { min, max, sqrt } = Math;
   const zoom = tileset[0][2];
   const nTiles = 2 ** zoom;
   const scaleFac = layout.tileSize() / tileset.scale;
-  const mapResolution = 
-    Math.min(Math.max(1.0 / Math.sqrt(2), scaleFac), Math.sqrt(2));
+  const mapResolution = min(max(1.0 / sqrt(2), scaleFac), sqrt(2));
 
   function wrap(x, xmax) {
     while (x < 0) x += xmax;
@@ -20,11 +20,11 @@ export function getTileMetric(layout, tileset, padding = 0.595) {
   const y1 = y0 + vpHeight / tileset.scale + 2 * pad;
 
   return function(tile) {
-    let zoomFac = 2 ** (zoom - tile.z);
-    let tileResolution = Math.min(1, mapResolution / zoomFac);
+    const zoomFac = 2 ** (zoom - tile.z);
+    const tileResolution = min(1, mapResolution / zoomFac);
 
     // Convert the tile cornerpoints to tile units at MAP zoom level
-    let tb = {
+    const tb = {
       x0: tile.x * zoomFac,
       x1: (tile.x + 1) * zoomFac,
       y0: tile.y * zoomFac,
@@ -32,15 +32,15 @@ export function getTileMetric(layout, tileset, padding = 0.595) {
     };
 
     // Find intersections of map and tile. Be careful with the antimeridian
-    let xOverlap = Math.max(
+    const xOverlap = max(
       // Test for intersection with the tile in its raw position
-      Math.min(x1, tb.x1) - Math.max(x0, tb.x0),
+      min(x1, tb.x1) - max(x0, tb.x0),
       // Test with the tile shifted across the antimeridian
-      Math.min(x1, tb.x1 + nTiles) - Math.max(x0, tb.x0 + nTiles)
+      min(x1, tb.x1 + nTiles) - max(x0, tb.x0 + nTiles)
     );
-    let yOverlap = Math.min(y1, tb.y1) - Math.max(y0, tb.y0);
-    let overlapArea = Math.max(0, xOverlap) * Math.max(0, yOverlap);
-    let visibleArea = overlapArea / mapResolution ** 2;
+    const yOverlap = min(y1, tb.y1) - max(y0, tb.y0);
+    const overlapArea = max(0, xOverlap) * max(0, yOverlap);
+    const visibleArea = overlapArea / mapResolution ** 2;
 
     // Flip sign to put most valuable tiles at the minimum. TODO: unnecessary?
     return 1.0 - visibleArea * tileResolution;

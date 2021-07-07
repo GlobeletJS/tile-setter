@@ -12,9 +12,9 @@ export function getProjection(units) {
         scale: () => 1.0,
       };
     case "radians":
-      return { 
-        forward, 
-        inverse, 
+      return {
+        forward,
+        inverse,
         scale,
       };
     case "degrees":
@@ -31,7 +31,7 @@ export function getProjection(units) {
 export function forward([lon, lat]) {
   // Convert input longitude in radians to a Web Mercator x-coordinate
   // where x = 0 at lon = -PI, x = 1 at lon = +PI
-  let x = 0.5 + 0.5 * lon / Math.PI;
+  const x = 0.5 + 0.5 * lon / Math.PI;
 
   // Convert input latitude in radians to a Web Mercator y-coordinate
   // where y = 0 at lat = maxMercLat, y = 1 at lat = -maxMercLat
@@ -45,13 +45,16 @@ export function forward([lon, lat]) {
 }
 
 export function inverse([x, y]) {
-  let lon = 2.0 * (x - 0.5) * Math.PI;
-  let lat = 2.0 * Math.atan(Math.exp(Math.PI * (1.0 - 2.0 * y))) - Math.PI / 2;
+  const { atan, exp, PI } = Math;
+
+  const lon = 2.0 * (x - 0.5) * PI;
+  const lat = 2.0 * atan(exp(PI * (1.0 - 2.0 * y))) - PI / 2;
 
   return [lon, lat];
 }
 
-export function scale([lon, lat]) {
+export function scale(point) {
+  const lat = point[1];
   // Return value scales a (differential) distance along the plane tangent to
   // the sphere at [lon, lat] to a distance in map coordinates.
   // NOTE: ASSUMES a sphere of radius 1! Input distances should be

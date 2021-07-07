@@ -1,11 +1,11 @@
-import * as chunkedQueue from 'chunked-queue';
-import { initTileMixer } from 'tile-mixer';
-import { initCache } from 'tile-rack';
+import * as chunkedQueue from "chunked-queue";
+import { initTileMixer } from "tile-mixer";
+import { initCache } from "tile-rack";
 
 export function initCaches({ context, glyphs }) {
   const queue = chunkedQueue.init();
   const reporter = document.createElement("div");
-  
+
   function addSource({ source, layers }) {
     const loader = initLoader(source, layers);
     const factory = buildFactory({ loader, reporter });
@@ -21,7 +21,7 @@ export function initCaches({ context, glyphs }) {
           threads: (source.type === "geojson") ? 1 : 2,
         });
       case "raster":
-        //return initRasterLoader(source, layers);
+        return; // initRasterLoader(source, layers);
       default: return;
     }
   }
@@ -36,7 +36,7 @@ export function initCaches({ context, glyphs }) {
 
 function buildFactory({ loader, reporter }) {
   return function(z, x, y) {
-    let id = [z, x, y].join("/");
+    const id = [z, x, y].join("/");
     const tile = { z, x, y, id, priority: 0 };
 
     function callback(err, data) {
@@ -55,5 +55,5 @@ function buildFactory({ loader, reporter }) {
     };
 
     return tile;
-  }
+  };
 }

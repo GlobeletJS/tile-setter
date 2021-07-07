@@ -1,10 +1,10 @@
-import { getStyleFuncs  } from 'tile-stencil';
+import { getStyleFuncs } from "tile-stencil";
 
 export function initRenderer(context, style) {
-  const { sources, spriteData: spriteObject, layers } = style;
+  const { layers } = style;
 
   const painters = layers.map(layer => {
-    let painter = context.initPainter(getStyleFuncs(layer));
+    const painter = context.initPainter(getStyleFuncs(layer));
 
     painter.visible = () => layer.visible;
     return painter;
@@ -15,7 +15,7 @@ export function initRenderer(context, style) {
     painters.forEach(painter => {
       if (zoom < painter.minzoom || painter.maxzoom < zoom) return;
       if (!painter.visible()) return;
-      let tileset = tilesets[painter.source];
+      const tileset = tilesets[painter.source];
       painter({ tileset, zoom, pixRatio });
     });
   };

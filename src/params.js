@@ -1,6 +1,6 @@
 import { getProjection } from "./projection.js";
 import { initCoords } from "./coords.js";
-import { initGLpaint } from 'tile-gl';
+import { initGLpaint } from "tile-gl";
 import { initEventHandler } from "./events.js";
 
 export function setParams(userParams) {
@@ -17,7 +17,7 @@ export function setParams(userParams) {
     style,
     mapboxToken,
     clampY = true,
-    units = 'degrees',
+    units = "degrees",
   } = userParams;
 
   const { buffer, size } = framebuffer;

@@ -9,12 +9,12 @@ export function initSources(style, context, coords) {
   const layerSources = layers.reduce((d, l) => (d[l.id] = l.source, d), {});
 
   const grids = Object.entries(sourceDescriptions).map(([key, source]) => {
-    let subset = layers.filter(l => l.source === key);
+    const subset = layers.filter(l => l.source === key);
     if (!subset.length) return;
 
-    let tileCache = caches.addSource({ source, layers: subset });
+    const tileCache = caches.addSource({ source, layers: subset });
     if (!tileCache) return;
-    let grid = initTileGrid({ key, source, tileCache });
+    const grid = initTileGrid({ key, source, tileCache });
 
     grid.layers = subset;
     return grid;

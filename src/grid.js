@@ -1,5 +1,5 @@
 import { initBoundsCheck } from "./bounds.js";
-import * as d3 from 'd3-tile';
+import * as d3 from "d3-tile";
 import { getTileMetric } from "./metric.js";
 
 export function initTileGrid({ key, source, tileCache }) {
@@ -30,14 +30,14 @@ export function initTileGrid({ key, source, tileCache }) {
     // Retrieve a tile box for every tile in the grid
     var tilesDone = 0;
     const grid = tiles.map(([x, y, z]) => {
-      let [xw, yw, zw] = d3.tileWrap([x, y, z]);
+      const [xw, yw, zw] = d3.tileWrap([x, y, z]);
 
       if (outOfBounds(zw, xw, yw)) {
         tilesDone += 1; // Count it as complete
         return;
       }
 
-      let box = tileCache.retrieve([zw, xw, yw], stopCondition);
+      const box = tileCache.retrieve([zw, xw, yw], stopCondition);
       if (!box) return;
 
       tilesDone += box.sw ** 2;

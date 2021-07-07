@@ -12,9 +12,9 @@ function getProjection(units) {
         scale: () => 1.0,
       };
     case "radians":
-      return { 
-        forward, 
-        inverse, 
+      return {
+        forward,
+        inverse,
         scale,
       };
     case "degrees":
@@ -31,7 +31,7 @@ function getProjection(units) {
 function forward([lon, lat]) {
   // Convert input longitude in radians to a Web Mercator x-coordinate
   // where x = 0 at lon = -PI, x = 1 at lon = +PI
-  let x = 0.5 + 0.5 * lon / Math.PI;
+  const x = 0.5 + 0.5 * lon / Math.PI;
 
   // Convert input latitude in radians to a Web Mercator y-coordinate
   // where y = 0 at lat = maxMercLat, y = 1 at lat = -maxMercLat
@@ -45,13 +45,16 @@ function forward([lon, lat]) {
 }
 
 function inverse([x, y]) {
-  let lon = 2.0 * (x - 0.5) * Math.PI;
-  let lat = 2.0 * Math.atan(Math.exp(Math.PI * (1.0 - 2.0 * y))) - Math.PI / 2;
+  const { atan, exp, PI } = Math;
+
+  const lon = 2.0 * (x - 0.5) * PI;
+  const lat = 2.0 * atan(exp(PI * (1.0 - 2.0 * y))) - PI / 2;
 
   return [lon, lat];
 }
 
-function scale([lon, lat]) {
+function scale(point) {
+  const lat = point[1];
   // Return value scales a (differential) distance along the plane tangent to
   // the sphere at [lon, lat] to a distance in map coordinates.
   // NOTE: ASSUMES a sphere of radius 1! Input distances should be
@@ -63,7 +66,7 @@ function initCoords({ size, center, zoom, clampY, projection }) {
   const minTileSize = 256;
   const logTileSize = Math.log2(minTileSize);
 
-  const transform = { 
+  const transform = {
     k: 1, // Size of the world map, in pixels
     x: 0, // Rightward shift of lon = 0 from left edge of viewport, in pixels
     y: 0, // Downward shift of lat = 0 from top edge of viewport, in pixels
@@ -125,7 +128,7 @@ function initCoords({ size, center, zoom, clampY, projection }) {
       : sy;
     const [xNew, yNew] = [sx, yLim].map(Math.round);
 
-    // Make sure camera is still pointing at the original location: shift from 
+    // Make sure camera is still pointing at the original location: shift from
     // the center [0.5, 0.5] by the change in the translation due to rounding
     camPos[0] = 0.5 + (xNew - sx) / size.width;
     camPos[1] = 0.5 + (yNew - sy) / size.height;
@@ -142,19 +145,19 @@ function initCoords({ size, center, zoom, clampY, projection }) {
   }
 
   function setCenterZoom(c, z) {
-    let k = 512 * 2 ** z;
+    const k = 512 * 2 ** z;
 
-    let [xr, yr] = projection.forward(c);
-    let x = (0.5 - xr) * k + size.width / 2;
-    let y = (0.5 - yr) * k + size.height / 2;
+    const [xr, yr] = projection.forward(c);
+    const x = (0.5 - xr) * k + size.width / 2;
+    const y = (0.5 - yr) * k + size.height / 2;
 
     return setTransform({ k, x, y });
   }
 
   function localToGlobal([x, y]) {
     // Convert local map pixels to global XY
-    let { x: tx, y: ty, k } = transform;
-    // tx, ty is the shift of the map center (in pixels) 
+    const { x: tx, y: ty, k } = transform;
+    // tx, ty is the shift of the map center (in pixels)
     //   relative to the viewport origin (top left corner)
     return [(x - tx) / k + 0.5, (y - ty) / k + 0.5];
   }
@@ -253,7 +256,7 @@ function initGrid(framebufferSize, useProgram, setters) {
     useProgram();
 
     const { width, height } = framebufferSize;
-    screenScale([ 2 / width, -2 / height, pixRatio ]);
+    screenScale([2 / width, -2 / height, pixRatio]);
 
     const { x, y, z } = tileset[0];
     const numTiles = 1 << z;
@@ -310,7 +313,9 @@ function initSetters(pairs, uniformSetters) {
     });
 }
 
-function initVectorTilePainter(context, framebufferSize, layerId, setAtlas) {
+function initVectorTilePainter(
+  context, framebufferSize, layerId, setAtlas
+) {
   return function(tileBox, translate, scale) {
     const { x, y, tile } = tileBox;
     const { layers, atlas } = tile.data;
@@ -369,6 +374,7 @@ function initCircle(context, framebufferSize, preamble) {
     const paintTile = initVectorTilePainter(context, framebufferSize, id);
     return initTilesetPainter(grid, zoomFuncs, paintTile);
   }
+
   return { load, initPainter };
 }
 
@@ -541,8 +547,8 @@ function initLine(context, framebufferSize, preamble) {
 
     const zoomFuncs = initSetters([
       // TODO: move these to serialization step??
-      //[layout["line-cap"],      "lineCap"],
-      //[layout["line-join"],     "lineJoin"],
+      // [layout["line-cap"],      "lineCap"],
+      // [layout["line-join"],     "lineJoin"],
       [layout["line-miter-limit"], "miterLimit"],
 
       [paint["line-width"],     "lineWidth"],
@@ -556,6 +562,7 @@ function initLine(context, framebufferSize, preamble) {
     const paintTile = initVectorTilePainter(context, framebufferSize, id);
     return initTilesetPainter(grid, zoomFuncs, paintTile);
   }
+
   return { load, initPainter };
 }
 
@@ -629,6 +636,7 @@ function initFill(context, framebufferSize, preamble) {
     const paintTile = initVectorTilePainter(context, framebufferSize, id);
     return initTilesetPainter(grid, zoomFuncs, paintTile);
   }
+
   return { load, initPainter };
 }
 
@@ -726,9 +734,12 @@ function initText(context, framebufferSize, preamble) {
       // TODO: sprites
     ], uniformSetters);
 
-    const paintTile = initVectorTilePainter(context, framebufferSize, id, setAtlas);
+    const paintTile = initVectorTilePainter(
+      context, framebufferSize, id, setAtlas
+    );
     return initTilesetPainter(grid, zoomFuncs, paintTile);
   }
+
   return { load, initPainter };
 }
 
@@ -736,8 +747,8 @@ function initGLpaint(context, framebuffer) {
   const programs = {
     "background": initBackground(context),
     "circle": initCircle(context, framebuffer.size, preamble),
-    "line":   initLine(context, framebuffer.size, preamble),
-    "fill":   initFill(context, framebuffer.size, preamble),
+    "line": initLine(context, framebuffer.size, preamble),
+    "fill": initFill(context, framebuffer.size, preamble),
     "symbol": initText(context, framebuffer.size, preamble),
   };
 
@@ -756,7 +767,7 @@ function initGLpaint(context, framebuffer) {
     } else if (buffers.labelPos) {
       return programs.symbol.load(buffers);
     } else {
-      throw("loadBuffers: unknown buffers structure!");
+      throw "loadBuffers: unknown buffers structure!";
     }
   }
 
@@ -794,7 +805,7 @@ function initEventHandler() {
   function emitEvent(type, data = "1") {
     events[type] = data;
 
-    let audience = listeners[type];
+    const audience = listeners[type];
     if (!audience) return;
 
     Object.values(audience).forEach(listener => listener(data));
@@ -803,15 +814,15 @@ function initEventHandler() {
   function addListener(type, listener) {
     if (!listeners[type]) listeners[type] = {};
 
-    let id = ++globalID;
+    const id = ++globalID;
     listeners[type][id] = listener;
-    
+
     if (events[type]) listener(events[type]);
     return id;
   }
 
   function removeListener(type, id) {
-    let audience = listeners[type];
+    const audience = listeners[type];
     if (audience) delete audience[id];
   }
 
@@ -836,7 +847,7 @@ function setParams$1(userParams) {
     style,
     mapboxToken,
     clampY = true,
-    units = 'degrees',
+    units = "degrees",
   } = userParams;
 
   const { buffer, size } = framebuffer;
@@ -898,7 +909,7 @@ function expandSpriteURLs(url, token) {
   // Returns an array containing urls to .png and .json files
   const prefix = /^mapbox:\/\/sprites\//;
   if ( !url.match(prefix) ) return {
-    image: url + ".png", 
+    image: url + ".png",
     meta: url + ".json",
   };
 
@@ -907,7 +918,7 @@ function expandSpriteURLs(url, token) {
   url = url.replace(prefix, apiRoot) + "/sprite";
   const tokenString = "?access_token=" + token;
   return {
-    image: url + ".png" + tokenString, 
+    image: url + ".png" + tokenString,
     meta: url + ".json" + tokenString,
   };
 }
@@ -948,7 +959,7 @@ function getJSON(href) {
 function checkFetch(response) {
   if (!response.ok) {
     const { status, statusText, url } = response;
-    const message = ["HTTP", status, statusText, "for URL", url].join(" ");
+    const message = `HTTP ${status} ${statusText} for URL ${url}`;
     return Promise.reject(Error(message));
   }
 
@@ -962,8 +973,8 @@ function getImage(href) {
     img.onerror = () => reject(Error("Failed to retrieve image from " + href));
 
     img.onload = () => (img.complete && img.naturalWidth !== 0)
-        ? resolve(img)
-        : reject(Error("Incomplete image received from " + href));
+      ? resolve(img)
+      : reject(Error("Incomplete image received from " + href));
 
     img.crossOrigin = "anonymous";
     img.src = href;
@@ -1374,7 +1385,7 @@ function buildInterpolator(stops, base = 1) {
     let [x1, y1] = stops[iz];
 
     return interpolate(y0, scale(x0, x, x1), y1);
-  }
+  };
 }
 
 function getType(v) {
@@ -1416,7 +1427,7 @@ function getInterpolator(type) {
         v1.map((v, i) => v + t * (v2[i] - v));
 
     default:       // Assume step function
-      return (v1, t, v2) => v1;
+      return (v1) => v1;
   }
 }
 
@@ -1450,14 +1461,14 @@ function getStyleFunc(style) {
   const { type, property = "zoom", base = 1, stops } = style;
 
   const getArg = (property === "zoom")
-    ? (zoom, feature) => zoom
+    ? (zoom) => zoom
     : (zoom, feature) => feature.properties[property];
 
   const getVal = (type === "identity")
     ? convertIfColor
     : buildInterpolator(stops, base);
 
-  if (!getVal) return console.log("style: " + JSON.stringify(style) + 
+  if (!getVal) return console.log("style: " + JSON.stringify(style) +
     "\nERROR in tile-stencil: unsupported style!");
 
   const styleFunc = (zoom, feature) => getVal(getArg(zoom, feature));
@@ -1627,7 +1638,11 @@ const paintDefaults = {
     "heatmap-radius": 30,
     "heatmap-weight": 1,
     "heatmap-intensity": 1,
-    "heatmap-color": ["interpolate",["linear"],["heatmap-density"],0,"rgba(0, 0, 255,0)",0.1,"royalblue",0.3,"cyan",0.5,"lime",0.7,"yellow",1,"red"],
+    "heatmap-color": [
+      "interpolate", ["linear"], ["heatmap-density"],
+      0, "rgba(0, 0, 255,0)", 0.1, "royalblue", 0.3, "cyan",
+      0.5, "lime", 0.7, "yellow", 1, "red"
+    ],
     "heatmap-opacity": 1,
   },
   "hillshade": {
@@ -1641,13 +1656,13 @@ const paintDefaults = {
 };
 
 const refProperties = [
-  'type', 
-  'source', 
-  'source-layer', 
-  'minzoom', 
-  'maxzoom', 
-  'filter', 
-  'layout'
+  "type",
+  "source",
+  "source-layer",
+  "minzoom",
+  "maxzoom",
+  "filter",
+  "layout"
 ];
 
 function derefLayers(layers) {
@@ -1667,7 +1682,7 @@ function derefLayers(layers) {
   layers.forEach( layer => { map[layer.id] = layer; } );
 
   for (let i = 0; i < layers.length; i++) {
-    if ('ref' in layers[i]) {
+    if ("ref" in layers[i]) {
       layers[i] = deref(layers[i], map[layers[i].ref]);
     }
   }
@@ -1679,7 +1694,7 @@ function deref(layer, parent) {
   const result = {};
 
   for (const k in layer) {
-    if (k !== 'ref') {
+    if (k !== "ref") {
       result[k] = layer[k];
     }
   }
@@ -1716,9 +1731,9 @@ function expandSources(rawSources, token) {
     const { type, url } = source;
 
     const infoPromise =
-      (type === "geojson") ? getGeoJSON(source.data).then(data => ({ data }))
-      : (url) ? getJSON(expandTileURL(url, token)) // Get linked TileJSON
-      : Promise.resolve({}); // No linked info
+      (type === "geojson") ? getGeoJSON(source.data).then(data => ({ data })) :
+      (url) ? getJSON(expandTileURL(url, token)) : // Get linked TileJSON
+      Promise.resolve({}); // No linked info
 
     return infoPromise.then(info => {
       // Assign everything to a new object for return.
@@ -1786,14 +1801,16 @@ function loadStyle(style, mapboxToken) {
 function checkStyle(doc) {
   const { version, sources, layers } = doc;
 
+  const noSource =
+    typeof sources !== "object" ||
+    sources === null ||
+    Array.isArray(sources);
+
   const error =
-    (typeof sources !== "object" || sources === null || Array.isArray(sources))
-    ? "missing sources object"
-    : (!Array.isArray(layers))
-    ? "missing layers array"
-    : (version !== 8)
-    ? "unsupported version number"
-    : null;
+    noSource ? "missing sources object" :
+    (!Array.isArray(layers)) ? "missing layers array" :
+    (version !== 8) ? "unsupported version number" :
+    null;
 
   return (error) ? Promise.reject(error) : doc;
 }
@@ -1853,12 +1870,12 @@ function init$2() {
   function enqueueTask(newTask) {
     const defaultPriority = () => 0;
     taskId += 1;
-    tasks.push({ 
+    tasks.push({
       id: taskId,
       getPriority: newTask.getPriority || defaultPriority,
       chunks: newTask.chunks,
     });
-    if (!queueIsRunning) setZeroTimeout(runTaskQueue);
+    if (!queueIsRunning) window.setZeroTimeout(runTaskQueue);
     return taskId;
   }
 
@@ -1887,7 +1904,7 @@ function init$2() {
     let chunk = tasks[0].chunks.shift();
     chunk();
 
-    setZeroTimeout(runTaskQueue);
+    window.setZeroTimeout(runTaskQueue);
   }
 
   function isDone(task) {
@@ -1950,12 +1967,12 @@ function init$1() {
   function enqueueTask(newTask) {
     const defaultPriority = () => 0;
     taskId += 1;
-    tasks.push({ 
+    tasks.push({
       id: taskId,
       getPriority: newTask.getPriority || defaultPriority,
       chunks: newTask.chunks,
     });
-    if (!queueIsRunning) setZeroTimeout(runTaskQueue);
+    if (!queueIsRunning) window.setZeroTimeout(runTaskQueue);
     return taskId;
   }
 
@@ -1984,7 +2001,7 @@ function init$1() {
     let chunk = tasks[0].chunks.shift();
     chunk();
 
-    setZeroTimeout(runTaskQueue);
+    window.setZeroTimeout(runTaskQueue);
   }
 
   function isDone(task) {
@@ -2008,10 +2025,10 @@ function setParams(userParams) {
   // Confirm supplied styles are all vector layers reading from the same source
   if (!layers || !layers.length) fail("no valid array of style layers!");
 
-  let allVectors = layers.every( l => vectorTypes.includes(l.type) );
+  const allVectors = layers.every( l => vectorTypes.includes(l.type) );
   if (!allVectors) fail("not all layers are vector types!");
 
-  let sameSource = layers.every( l => l.source === layers[0].source );
+  const sameSource = layers.every( l => l.source === layers[0].source );
   if (!sameSource) fail("supplied layers use different sources!");
 
   if (!source) fail("parameters.source is required!");
@@ -2057,10 +2074,10 @@ function initWorkers(codeHref, params) {
     cancelTask,
     activeTasks: () => workLoads.reduce( (a, b) => a + b, 0 ),
     terminate: () => workers.forEach( worker => worker.terminate() ),
-  }
+  };
 
   function startTask(payload, callback) {
-    let workerID = getIdleWorkerID(workLoads);
+    const workerID = getIdleWorkerID(workLoads);
     workLoads[workerID] += 1;
 
     msgId += 1;
@@ -2071,7 +2088,7 @@ function initWorkers(codeHref, params) {
   }
 
   function cancelTask(id) {
-    let task = tasks[id];
+    const task = tasks[id];
     if (!task) return;
     workers[task.workerID].postMessage({ id, type: "cancel" });
     workLoads[task.workerID] -= 1;
@@ -2515,7 +2532,7 @@ function buildInterpolator(stops, base = 1) {
     let [x1, y1] = stops[iz];
 
     return interpolate(y0, scale(x0, x, x1), y1);
-  }
+  };
 }
 
 function getType(v) {
@@ -2557,7 +2574,7 @@ function getInterpolator(type) {
         v1.map((v, i) => v + t * (v2[i] - v));
 
     default:       // Assume step function
-      return (v1, t, v2) => v1;
+      return (v1) => v1;
   }
 }
 
@@ -2591,14 +2608,14 @@ function getStyleFunc(style) {
   const { type, property = "zoom", base = 1, stops } = style;
 
   const getArg = (property === "zoom")
-    ? (zoom, feature) => zoom
+    ? (zoom) => zoom
     : (zoom, feature) => feature.properties[property];
 
   const getVal = (type === "identity")
     ? convertIfColor
     : buildInterpolator(stops, base);
 
-  if (!getVal) return console.log("style: " + JSON.stringify(style) + 
+  if (!getVal) return console.log("style: " + JSON.stringify(style) +
     "\nERROR in tile-stencil: unsupported style!");
 
   const styleFunc = (zoom, feature) => getVal(getArg(zoom, feature));
@@ -2768,7 +2785,11 @@ const paintDefaults = {
     "heatmap-radius": 30,
     "heatmap-weight": 1,
     "heatmap-intensity": 1,
-    "heatmap-color": ["interpolate",["linear"],["heatmap-density"],0,"rgba(0, 0, 255,0)",0.1,"royalblue",0.3,"cyan",0.5,"lime",0.7,"yellow",1,"red"],
+    "heatmap-color": [
+      "interpolate", ["linear"], ["heatmap-density"],
+      0, "rgba(0, 0, 255,0)", 0.1, "royalblue", 0.3, "cyan",
+      0.5, "lime", 0.7, "yellow", 1, "red"
+    ],
     "heatmap-opacity": 1,
   },
   "hillshade": {
@@ -2782,7 +2803,7 @@ const paintDefaults = {
 };
 
 function buildFeatureFilter(filterObj) {
-  // filterObj is a filter definition following the "deprecated" syntax:
+  // filterObj is a filter definition following the 'deprecated' syntax:
   // https://maplibre.org/maplibre-gl-js-docs/style-spec/other/#other-filter
   if (!filterObj) return () => true;
   const [type, ...vals] = filterObj;
@@ -2812,13 +2833,13 @@ function getSimpleFilter(filterObj) {
 
   switch (type) {
     // Existential Filters
-    case "has": 
+    case "has":
       return d => !!getVal(d); // !! forces a Boolean return
-    case "!has": 
+    case "!has":
       return d => !getVal(d);
 
     // Comparison Filters
-    case "==": 
+    case "==":
       return d => getVal(d) === vals[0];
     case "!=":
       return d => getVal(d) !== vals[0];
@@ -3653,7 +3674,7 @@ function writeUtf8(buf, str, pos) {
 }
 
 class AlphaImage {
-  // See mapbox-gl-js/src/util/image.js
+  // See maplibre-gl-js/src/util/image.js
   constructor(size, data) {
     createImage(this, size, 1, data);
   }
@@ -3678,7 +3699,7 @@ function createImage(image, { width, height }, channels, data) {
   if (!data) {
     data = new Uint8Array(width * height * channels);
   } else if (data.length !== width * height * channels) {
-    throw new RangeError('mismatched image size');
+    throw new RangeError("mismatched image size");
   }
   return Object.assign(image, { width, height, data });
 }
@@ -3686,7 +3707,7 @@ function createImage(image, { width, height }, channels, data) {
 function resizeImage(image, { width, height }, channels) {
   if (width === image.width && height === image.height) return;
 
-  const size = { 
+  const size = {
     width: Math.min(image.width, width),
     height: Math.min(image.height, height),
   };
@@ -3702,10 +3723,10 @@ function copyImage(srcImg, dstImg, srcPt, dstPt, size, channels) {
   if (size.width === 0 || size.height === 0) return dstImg;
 
   if (outOfRange(srcPt, size, srcImg)) {
-    throw new RangeError('out of range source coordinates for image copy');
+    throw new RangeError("out of range source coordinates for image copy");
   }
   if (outOfRange(dstPt, size, dstImg)) {
-    throw new RangeError('out of range destination coordinates for image copy');
+    throw new RangeError("out of range destination coordinates for image copy");
   }
 
   const srcData = srcImg.data;
@@ -3740,7 +3761,7 @@ function outOfRange(point, size, image) {
 const GLYPH_PBF_BORDER$1 = 3;
 
 function parseGlyphPbf(data) {
-  // See mapbox-gl-js/src/style/parse_glyph_pbf.js
+  // See maplibre-gl-js/src/style/parse_glyph_pbf.js
   // Input is an ArrayBuffer, which will be read as a Uint8Array
   return new pbf(data).readFields(readFontstacks, []);
 }
@@ -3782,8 +3803,8 @@ function initGlyphCache(endpoint) {
     const first = range * 256;
     const last = first + 255;
     const href = endpoint
-      .replace('{fontstack}', font.split(" ").join("%20"))
-      .replace('{range}', first + "-" + last);
+      .replace("{fontstack}", font.split(" ").join("%20"))
+      .replace("{range}", first + "-" + last);
 
     return fetch(href)
       .then(getArrayBuffer)
@@ -3793,7 +3814,7 @@ function initGlyphCache(endpoint) {
 
   return function(font, code) {
     // 1. Find the 256-char block containing this code
-    if (code > 65535) throw Error('glyph codes > 65535 not supported');
+    if (code > 65535) throw Error("glyph codes > 65535 not supported");
     const range = Math.floor(code / 256);
 
     // 2. Get the Promise for the retrieval and parsing of the block
@@ -3908,7 +3929,7 @@ function potpack(boxes) {
 const ATLAS_PADDING$1 = 1;
 
 function buildAtlas(fonts) {
-  // See mapbox-gl-js/src/render/glyph_atlas.js
+  // See maplibre-gl-js/src/render/glyph_atlas.js
 
   // Construct position objects (metrics and rects) for each glyph
   const positions = Object.entries(fonts)
@@ -3955,7 +3976,7 @@ function getPosition(glyph) {
 }
 
 function copyGlyphBitmap(glyph, positions, image) {
-  let { id, bitmap, metrics } = glyph;
+  let { id, bitmap } = glyph;
   let position = positions[id];
   if (!position) return;
 
@@ -3975,7 +3996,7 @@ function initGetter(urlTemplate, key) {
 
   // Put in the API key, if supplied
   const endpoint = (key)
-    ? urlTemplate.replace('{key}', key)
+    ? urlTemplate.replace("{key}", key)
     : urlTemplate;
 
   const getGlyph = initGlyphCache(endpoint);
@@ -4013,12 +4034,12 @@ function getTokenParser(tokenText) {
     if (!result) {
       // No tokens left. Parse the plain text after the last token
       let str = tokenText.substring(charIndex);
-      tokenFuncs.push(props => str);
+      tokenFuncs.push(() => str);
       break;
     } else if (result.index > charIndex) {
       // There is some plain text before the token
       let str = tokenText.substring(charIndex, result.index);
-      tokenFuncs.push(props => str);
+      tokenFuncs.push(() => str);
     }
 
     // Add a function to process the current token
@@ -4026,7 +4047,7 @@ function getTokenParser(tokenText) {
     tokenFuncs.push(props => props[token]);
     charIndex = tokenPattern.lastIndex;
   }
-  
+
   // We now have an array of functions returning either a text string or
   // a feature property
   // Return a function that assembles everything
@@ -4104,22 +4125,22 @@ function initCircleParsing(style) {
     [paint["circle-radius"],  "radius"],
     [paint["circle-color"],   "color"],
     [paint["circle-opacity"], "opacity"],
-  ].filter(([get, key]) => get.type === "property");
+  ].filter(([get]) => get.type === "property");
 
   return function(feature, { z, x, y }) {
     const circlePos = flattenPoints(feature.geometry);
     if (!circlePos) return;
 
     const length = circlePos.length / 2;
-    
-    const buffers = { 
+
+    const buffers = {
       circlePos,
-      tileCoords: Array.from({ length }).flatMap(v => [x, y, z]),
+      tileCoords: Array.from({ length }).flatMap(() => [x, y, z]),
     };
 
     dataFuncs.forEach(([get, key]) => {
       let val = get(null, feature);
-      buffers[key] = Array.from({ length }).flatMap(v => val);
+      buffers[key] = Array.from({ length }).flatMap(() => val);
     });
 
     return buffers;
@@ -4146,7 +4167,7 @@ function initLineParsing(style) {
   const dataFuncs = [
     [paint["line-color"], "color"],
     [paint["line-opacity"], "opacity"],
-  ].filter(([get, key]) => get.type === "property");
+  ].filter(([get]) => get.type === "property");
 
   return function(feature, { z, x, y }) {
     const lines = flattenLines(feature.geometry);
@@ -4156,12 +4177,12 @@ function initLineParsing(style) {
 
     const buffers = {
       lines,
-      tileCoords: Array.from({ length }).flatMap(v => [x, y, z]),
+      tileCoords: Array.from({ length }).flatMap(() => [x, y, z]),
     };
 
     dataFuncs.forEach(([get, key]) => {
       let val = get(null, feature);
-      buffers[key] = Array.from({ length }).flatMap(v => val);
+      buffers[key] = Array.from({ length }).flatMap(() => val);
     });
 
     return buffers;
@@ -4893,9 +4914,9 @@ function initFillParsing(style) {
   const { paint } = style;
 
   const dataFuncs = [
-    [paint["fill-color"],   "color"],
+    [paint["fill-color"], "color"],
     [paint["fill-opacity"], "opacity"],
-  ].filter(([get, key]) => get.type === "property");
+  ].filter(([get]) => get.type === "property");
 
   return function(feature, { z, x, y }) {
     const triangles = triangulate(feature.geometry);
@@ -4906,12 +4927,12 @@ function initFillParsing(style) {
     const buffers = {
       position: triangles.vertices,
       indices: triangles.indices,
-      tileCoords: Array.from({ length }).flatMap(v => [x, y, z]),
+      tileCoords: Array.from({ length }).flatMap(() => [x, y, z]),
     };
 
     dataFuncs.forEach(([get, key]) => {
       let val = get(null, feature);
-      buffers[key] = Array.from({ length }).flatMap(v => val);
+      buffers[key] = Array.from({ length }).flatMap(() => val);
     });
 
     return buffers;
@@ -4986,19 +5007,19 @@ function getTextBoxShift(anchor) {
   // by the returned value * bounding box dimensions
   switch (anchor) {
     case "top-left":
-      return [ 0.0,  0.0];
+      return [0.0, 0.0];
     case "top-right":
-      return [-1.0,  0.0];
+      return [-1.0, 0.0];
     case "top":
-      return [-0.5,  0.0];
+      return [-0.5, 0.0];
     case "bottom-left":
-      return [ 0.0, -1.0];
+      return [0.0, -1.0];
     case "bottom-right":
       return [-1.0, -1.0];
     case "bottom":
       return [-0.5, -1.0];
     case "left":
-      return [ 0.0, -0.5];
+      return [0.0, -0.5];
     case "right":
       return [-1.0, -0.5];
     case "center":
@@ -5024,7 +5045,7 @@ function getLineShift(justify, boxShiftX) {
 }
 
 const whitespace = {
-  // From mapbox-gl-js/src/symbol/shaping.js
+  // From maplibre-gl-js/src/symbol/shaping.js
   [0x09]: true, // tab
   [0x0a]: true, // newline
   [0x0b]: true, // vertical tab
@@ -5034,17 +5055,17 @@ const whitespace = {
 };
 
 const breakable = {
-  // From mapbox-gl-js/src/symbol/shaping.js
-  [0x0a]:   true, // newline
-  [0x20]:   true, // space
-  [0x26]:   true, // ampersand
-  [0x28]:   true, // left parenthesis
-  [0x29]:   true, // right parenthesis
-  [0x2b]:   true, // plus sign
-  [0x2d]:   true, // hyphen-minus
-  [0x2f]:   true, // solidus
-  [0xad]:   true, // soft hyphen
-  [0xb7]:   true, // middle dot
+  // From maplibre-gl-js/src/symbol/shaping.js
+  [0x0a]: true, // newline
+  [0x20]: true, // space
+  [0x26]: true, // ampersand
+  [0x28]: true, // left parenthesis
+  [0x29]: true, // right parenthesis
+  [0x2b]: true, // plus sign
+  [0x2d]: true, // hyphen-minus
+  [0x2f]: true, // solidus
+  [0xad]: true, // soft hyphen
+  [0xb7]: true, // middle dot
   [0x200b]: true, // zero-width space
   [0x2010]: true, // hyphen
   [0x2013]: true, // en dash
@@ -5061,9 +5082,8 @@ function getBreakPoints(glyphs, spacing, targetWidth) {
     if (!whitespace[code]) cursor += advance + spacing;
 
     if (i == last) return;
-    if (!breakable[code] 
-      //&& !charAllowsIdeographicBreaking(code)
-    ) return;
+    // if (!breakable[code]&& !charAllowsIdeographicBreaking(code)) return;
+    if (!breakable[code]) return;
 
     let breakInfo = evaluateBreak(
       i + 1,
@@ -5144,7 +5164,7 @@ function splitLines(glyphs, spacing, maxWidth) {
 
   const lineCount = Math.ceil(totalWidth / maxWidth);
   if (lineCount < 1) return [];
-  
+
   const targetWidth = totalWidth / lineCount;
   const breakPoints = getBreakPoints(glyphs, spacing, targetWidth);
 
@@ -5225,7 +5245,7 @@ function initShaper(layout) {
     // 6. Fill in label origins for each glyph. TODO: assumes Point geometry
     const origin = feature.geometry.coordinates.slice();
     const labelPos = lines.flat()
-      .flatMap(g => origin);
+      .flatMap(() => origin);
 
     // 7. Collect all the glyph rects
     const sdfRect = lines.flat()
@@ -5241,7 +5261,7 @@ function initShaper(layout) {
     ];
 
     return { labelPos, charPos, sdfRect, bbox };
-  }
+  };
 }
 
 function initShaping(style) {
@@ -5252,7 +5272,7 @@ function initShaping(style) {
   const dataFuncs = [
     [paint["text-color"],   "color"],
     [paint["text-opacity"], "opacity"],
-  ].filter(([get, key]) => get.type === "property");
+  ].filter(([get]) => get.type === "property");
 
   return function(feature, tileCoords, atlas, tree) {
     // tree is an RBush from the 'rbush' module. NOTE: will be updated!
@@ -5273,11 +5293,11 @@ function initShaping(style) {
     tree.insert(box);
 
     const length = buffers.labelPos.length / 2;
-    buffers.tileCoords = Array.from({ length }).flatMap(v => [x, y, z]);
+    buffers.tileCoords = Array.from({ length }).flatMap(() => [x, y, z]);
 
     dataFuncs.forEach(([get, key]) => {
       let val = get(null, feature);
-      buffers[key] = Array.from({ length }).flatMap(v => val);
+      buffers[key] = Array.from({ length }).flatMap(() => val);
     });
 
     // TODO: drop if outside tile?
@@ -5320,13 +5340,13 @@ function concatBuffers(features) {
 function appendBuffers(buffers, newBuffers) {
   const appendix = Object.assign({}, newBuffers);
   if (buffers.indices) {
-    let indexShift = buffers.position.length / 2;
+    const indexShift = buffers.position.length / 2;
     appendix.indices = newBuffers.indices.map(i => i + indexShift);
   }
   Object.keys(buffers).forEach(k => {
     // NOTE: The 'obvious' buffers[k].push(...appendix[k]) fails with
     //  the error "Maximum call stack size exceeded"
-    let base = buffers[k];
+    const base = buffers[k];
     appendix[k].forEach(a => base.push(a));
   });
 }
@@ -5906,7 +5926,7 @@ function initBufferConstructors(styles) {
     return Object.entries(layers)
       .reverse() // Reverse order for collision checks
       .map(([id, layer]) => {
-        let serialize = layerSerializers[id];
+        const serialize = layerSerializers[id];
         if (serialize) return serialize(layer, tileCoords, atlas, tree);
       })
       .reverse()
@@ -5922,11 +5942,11 @@ function initLayerSerializer(style) {
   if (!transform) return;
 
   return function(layer, tileCoords, atlas, tree) {
-    let { type, extent, features } = layer;
+    const { type, extent, features } = layer;
 
-    let transformed = features.map(feature => {
-      let { properties, geometry } = feature;
-      let buffers = transform(feature, tileCoords, atlas, tree);
+    const transformed = features.map(feature => {
+      const { properties, geometry } = feature;
+      const buffers = transform(feature, tileCoords, atlas, tree);
       // NOTE: if no buffers, we don't even want to keep the original
       // feature--because it won't be visible to the user (not rendered)
       if (buffers) return { properties, geometry, buffers };
@@ -6247,7 +6267,7 @@ function readTile(tag, layers, pbf) {
 function initMVT(source) {
   const getURL = initUrlFunc(source.tiles);
 
-  // TODO: use VectorTile.extent. Requires changes in vector-tile-esm, tile-painter
+  // TODO: use VectorTile.extent. Requires changes in dependencies, dependents
   const size = 512;
 
   return function(tileCoords, callback) {
@@ -6267,34 +6287,36 @@ function initMVT(source) {
 }
 
 function xhrGet(href, type, callback) {
-  var req = new XMLHttpRequest();
-  req.responseType = type;
+  const req = new XMLHttpRequest();
 
+  req.responseType = type;
   req.onerror = errHandler;
   req.onabort = errHandler;
   req.onload = loadHandler;
 
-  req.open('get', href);
+  req.open("get", href);
   req.send();
 
   function errHandler(e) {
-    let err = "XMLHttpRequest ended with an " + e.type;
-    return callback(err);
+    return callback(xhrErr("ended with an ", e.type));
   }
-  function loadHandler(e) {
-    if (req.responseType !== type) {
-      let err = "XMLHttpRequest: Wrong responseType. Expected " +
-        type + ", got " + req.responseType;
-      return callback(err, req.response);
-    }
-    if (req.status !== 200) {
-      let err = "XMLHttpRequest: HTTP " + req.status + " error from " + href;
-      return callback(err, req.response);
-    }
-    return callback(null, req.response);
+
+  function loadHandler() {
+    const { responseType, status, response } = req;
+
+    const err = (responseType !== type) ?
+      xhrErr("Expected responseType ", type, ", got ", responseType) :
+      (status !== 200) ? xhrErr("HTTP ", status, " error from ", href) :
+      null;
+
+    return callback(err, response);
   }
 
   return req; // Request can be aborted via req.abort()
+}
+
+function xhrErr(...strings) {
+  return "XMLHttpRequest: " + strings.join("");
 }
 
 function initUrlFunc(endpoints) {
@@ -6303,7 +6325,7 @@ function initUrlFunc(endpoints) {
 
   return function(z, x, y) {
     index = (index + 1) % endpoints.length;
-    var endpoint = endpoints[index];
+    const endpoint = endpoints[index];
     return endpoint.replace(/{z}/, z).replace(/{x}/, x).replace(/{y}/, y);
   };
 }
@@ -7224,16 +7246,16 @@ function geojsonvtToJSON(value) {
   const { geometry, type: typeNum, tags: properties } = value;
   if (!geometry) return value;
 
-  const types = ['Unknown', 'Point', 'LineString', 'Polygon'];
+  const types = ["Unknown", "Point", "LineString", "Polygon"];
 
   const type = (geometry.length <= 1)
     ? types[typeNum]
-    : 'Multi' + types[typeNum];
+    : "Multi" + types[typeNum];
 
   const coordinates =
-    (type == "MultiPolygon") ? [geometry]
-    : (type === 'Point'|| type === 'LineString') ? geometry[0]
-    : geometry;
+    (type == "MultiPolygon") ? [geometry] :
+    (type === "Point" || type === "LineString") ? geometry[0] :
+    geometry;
 
   return { geometry: { type, coordinates }, properties };
 }
@@ -7246,31 +7268,38 @@ onmessage = function(msgEvent) {
 
   switch (type) {
     case "setup":
-      // NOTE: changing global variable!
-      let { styles, glyphEndpoint, source } = payload;
-      loader = (source.type === "geojson")
-        ? initGeojson(source, styles)
-        : initMVT(source);
-      processor = initSourceProcessor(payload);
-      break;
+      return setup(payload);
     case "getTile":
-      // let { z, x, y } = payload;
-      let callback = (err, result) => process(id, err, result, payload);
-      const request = loader(payload, callback);
-      tasks[id] = { request, status: "requested" };
-      break;
+      return getTile(payload, id);
     case "cancel":
-      let task = tasks[id];
-      if (task && task.status === "requested") task.request.abort();
-      delete tasks[id];
-      break;
-      // Bad message type!
+      return cancel(id);
   }
 };
 
+function setup(payload) {
+  const { styles, source } = payload;
+  // NOTE: changing global variables!
+  loader = (source.type === "geojson")
+    ? initGeojson(source, styles)
+    : initMVT(source);
+  processor = initSourceProcessor(payload);
+}
+
+function getTile(payload, id) {
+  const callback = (err, result) => process(id, err, result, payload);
+  const request = loader(payload, callback);
+  tasks[id] = { request, status: "requested" };
+}
+
+function cancel(id) {
+  const task = tasks[id];
+  if (task && task.status === "requested") task.request.abort();
+  delete tasks[id];
+}
+
 function process(id, err, result, tileCoords) {
   // Make sure we still have an active task for this ID
-  let task = tasks[id];
+  const task = tasks[id];
   if (!task) return;  // Task must have been canceled
 
   if (err) {
@@ -7284,7 +7313,7 @@ function process(id, err, result, tileCoords) {
 
 function sendTile(id, tile) {
   // Make sure we still have an active task for this ID
-  let task = tasks[id];
+  const task = tasks[id];
   if (!task) return; // Task must have been canceled
 
   // Get a list of all the Transferable objects
@@ -7351,10 +7380,10 @@ function initCache({ create, size = 512 }) {
   const dzmax = Math.log2(size);
 
   function getOrCreateTile(zxy) {
-    let id = zxy.join("/");
+    const id = zxy.join("/");
     if (tiles[id]) return tiles[id];
 
-    let tile = create(...zxy); // TODO: review create signature
+    const tile = create(...zxy); // TODO: review create signature
     if (tile) tiles[id] = tile;
     return tile;
   }
@@ -7362,7 +7391,7 @@ function initCache({ create, size = 512 }) {
   return { retrieve, process, drop };
 
   function retrieve(zxy, condition) {
-    let z = zxy[0];
+    const z = zxy[0];
     if (!condition) condition = ([pz]) => (pz < 0 || (z - pz) > dzmax);
 
     return getTileOrParent(zxy, 0, 0, size, condition);
@@ -7375,21 +7404,21 @@ function initCache({ create, size = 512 }) {
   ) {
     if (condition(zxy)) return;
 
-    let tile = getOrCreateTile(zxy);
+    const tile = getOrCreateTile(zxy);
     if (!tile) return; // can't create tile for this zxy
     if (tile.ready) return { tile, sx, sy, sw };
 
     // Get coordinates of the parent tile
-    let [z, x, y] = zxy;
-    let pz = z - 1;
-    let px = Math.floor(x / 2);
-    let py = Math.floor(y / 2);
-    let pzxy = [pz, px, py, ...zxy.slice(3)]; // Include extra coords, if any
+    const [z, x, y] = zxy;
+    const pz = z - 1;
+    const px = Math.floor(x / 2);
+    const py = Math.floor(y / 2);
+    const pzxy = [pz, px, py, ...zxy.slice(3)]; // Include extra coords, if any
 
     // Compute cropping parameters for the parent
-    let psx = sx / 2 + (x / 2 - px) * size;
-    let psy = sy / 2 + (y / 2 - py) * size;
-    let psw = sw / 2;
+    const psx = sx / 2 + (x / 2 - px) * size;
+    const psy = sy / 2 + (y / 2 - py) * size;
+    const psw = sw / 2;
 
     return getTileOrParent(pzxy, psx, psy, psw, condition);
   }
@@ -7400,7 +7429,7 @@ function initCache({ create, size = 512 }) {
 
   function drop(condition) {
     var numTiles = 0;
-    for (let id in tiles) {
+    for (const id in tiles) {
       if (condition(tiles[id])) {
         tiles[id].cancel();
         delete tiles[id];
@@ -7415,7 +7444,7 @@ function initCache({ create, size = 512 }) {
 function initCaches({ context, glyphs }) {
   const queue = init$2();
   const reporter = document.createElement("div");
-  
+
   function addSource({ source, layers }) {
     const loader = initLoader(source, layers);
     const factory = buildFactory({ loader, reporter });
@@ -7431,7 +7460,7 @@ function initCaches({ context, glyphs }) {
           threads: (source.type === "geojson") ? 1 : 2,
         });
       case "raster":
-        //return initRasterLoader(source, layers);
+        return; // initRasterLoader(source, layers);
       default: return;
     }
   }
@@ -7446,7 +7475,7 @@ function initCaches({ context, glyphs }) {
 
 function buildFactory({ loader, reporter }) {
   return function(z, x, y) {
-    let id = [z, x, y].join("/");
+    const id = [z, x, y].join("/");
     const tile = { z, x, y, id, priority: 0 };
 
     function callback(err, data) {
@@ -7465,7 +7494,7 @@ function buildFactory({ loader, reporter }) {
     };
 
     return tile;
-  }
+  };
 }
 
 function initBoundsCheck(source) {
@@ -7487,12 +7516,12 @@ function initBoundsCheck(source) {
     // Return true if out of bounds
     if (z < minzoom || maxzoom < z) return true;
 
-    let zFac = 1 / 2 ** z;
+    const zFac = 1 / 2 ** z;
     if ((x + 1) * zFac < xmin || xmax < x * zFac) return true;
     if ((y + 1) * zFac < ymin || ymax < y * zFac) return true;
 
     return false;
-  }
+  };
 }
 
 function defaultScale(t) {
@@ -7591,11 +7620,11 @@ function tileWrap([x, y, z]) {
 }
 
 function getTileMetric(layout, tileset, padding = 0.595) {
+  const { min, max, sqrt } = Math;
   const zoom = tileset[0][2];
   const nTiles = 2 ** zoom;
   const scaleFac = layout.tileSize() / tileset.scale;
-  const mapResolution = 
-    Math.min(Math.max(1.0 / Math.sqrt(2), scaleFac), Math.sqrt(2));
+  const mapResolution = min(max(1.0 / sqrt(2), scaleFac), sqrt(2));
 
   function wrap(x, xmax) {
     while (x < 0) x += xmax;
@@ -7612,11 +7641,11 @@ function getTileMetric(layout, tileset, padding = 0.595) {
   const y1 = y0 + vpHeight / tileset.scale + 2 * pad;
 
   return function(tile) {
-    let zoomFac = 2 ** (zoom - tile.z);
-    let tileResolution = Math.min(1, mapResolution / zoomFac);
+    const zoomFac = 2 ** (zoom - tile.z);
+    const tileResolution = min(1, mapResolution / zoomFac);
 
     // Convert the tile cornerpoints to tile units at MAP zoom level
-    let tb = {
+    const tb = {
       x0: tile.x * zoomFac,
       x1: (tile.x + 1) * zoomFac,
       y0: tile.y * zoomFac,
@@ -7624,15 +7653,15 @@ function getTileMetric(layout, tileset, padding = 0.595) {
     };
 
     // Find intersections of map and tile. Be careful with the antimeridian
-    let xOverlap = Math.max(
+    const xOverlap = max(
       // Test for intersection with the tile in its raw position
-      Math.min(x1, tb.x1) - Math.max(x0, tb.x0),
+      min(x1, tb.x1) - max(x0, tb.x0),
       // Test with the tile shifted across the antimeridian
-      Math.min(x1, tb.x1 + nTiles) - Math.max(x0, tb.x0 + nTiles)
+      min(x1, tb.x1 + nTiles) - max(x0, tb.x0 + nTiles)
     );
-    let yOverlap = Math.min(y1, tb.y1) - Math.max(y0, tb.y0);
-    let overlapArea = Math.max(0, xOverlap) * Math.max(0, yOverlap);
-    let visibleArea = overlapArea / mapResolution ** 2;
+    const yOverlap = min(y1, tb.y1) - max(y0, tb.y0);
+    const overlapArea = max(0, xOverlap) * max(0, yOverlap);
+    const visibleArea = overlapArea / mapResolution ** 2;
 
     // Flip sign to put most valuable tiles at the minimum. TODO: unnecessary?
     return 1.0 - visibleArea * tileResolution;
@@ -7667,14 +7696,14 @@ function initTileGrid({ key, source, tileCache }) {
     // Retrieve a tile box for every tile in the grid
     var tilesDone = 0;
     const grid = tiles.map(([x, y, z]) => {
-      let [xw, yw, zw] = tileWrap([x, y, z]);
+      const [xw, yw, zw] = tileWrap([x, y, z]);
 
       if (outOfBounds(zw, xw, yw)) {
         tilesDone += 1; // Count it as complete
         return;
       }
 
-      let box = tileCache.retrieve([zw, xw, yw], stopCondition);
+      const box = tileCache.retrieve([zw, xw, yw], stopCondition);
       if (!box) return;
 
       tilesDone += box.sw ** 2;
@@ -7699,12 +7728,12 @@ function initSources(style, context, coords) {
   const layerSources = layers.reduce((d, l) => (d[l.id] = l.source, d), {});
 
   const grids = Object.entries(sourceDescriptions).map(([key, source]) => {
-    let subset = layers.filter(l => l.source === key);
+    const subset = layers.filter(l => l.source === key);
     if (!subset.length) return;
 
-    let tileCache = caches.addSource({ source, layers: subset });
+    const tileCache = caches.addSource({ source, layers: subset });
     if (!tileCache) return;
-    let grid = initTileGrid({ key, source, tileCache });
+    const grid = initTileGrid({ key, source, tileCache });
 
     grid.layers = subset;
     return grid;
@@ -7734,10 +7763,10 @@ function initSources(style, context, coords) {
 }
 
 function initRenderer(context, style) {
-  const { sources, spriteData: spriteObject, layers } = style;
+  const { layers } = style;
 
   const painters = layers.map(layer => {
-    let painter = context.initPainter(getStyleFuncs(layer));
+    const painter = context.initPainter(getStyleFuncs(layer));
 
     painter.visible = () => layer.visible;
     return painter;
@@ -7748,7 +7777,7 @@ function initRenderer(context, style) {
     painters.forEach(painter => {
       if (zoom < painter.minzoom || painter.maxzoom < zoom) return;
       if (!painter.visible()) return;
-      let tileset = tilesets[painter.source];
+      const tileset = tilesets[painter.source];
       painter({ tileset, zoom, pixRatio });
     });
   };
@@ -8003,7 +8032,7 @@ function initSelector(sources, projection) {
     if (!tileBox) return;
     const dataLayer = tileBox.tile.data.layers[layer];
     if (!dataLayer) return;
-    //const { features, extent = tileSize } = dataLayer;
+    // const { features, extent = tileSize } = dataLayer;
     const { features } = dataLayer;
     const extent = tileSize; // TODO: use data extent
     if (!features || !features.length) return;
@@ -8014,7 +8043,7 @@ function initSelector(sources, projection) {
 
     // Find the nearest feature
     const { distance, feature } = features.reduce((nearest, feature) => {
-      let distance = measureDistance(tileXY, feature.geometry);
+      const distance = measureDistance(tileXY, feature.geometry);
       if (distance < nearest.distance) nearest = { distance, feature };
       return nearest;
     }, { distance: Infinity });
@@ -8033,14 +8062,18 @@ function measureDistance(pt, geometry) {
 
   switch (type) {
     case "Point":
-      let [x, y] = coordinates;
-      return Math.sqrt((x - pt[0]) ** 2 + (y - pt[1]) ** 2);
+      return distToPoint(coordinates, pt);
     case "Polygon":
     case "MultiPolygon":
       return booleanPointInPolygon(pt, geometry) ? 0 : Infinity;
     default:
       return; // Unknown feature type!
   }
+}
+
+function distToPoint(coords, pt) {
+  const [x, y] = coords;
+  return Math.sqrt((x - pt[0]) ** 2 + (y - pt[1]) ** 2);
 }
 
 function init(userParams) {
@@ -8067,14 +8100,14 @@ function init(userParams) {
 
 function setup(styleDoc, params, api) {
   const sources = initSources(styleDoc, params.context, api);
-  sources.reporter.addEventListener("tileLoaded", 
+  sources.reporter.addEventListener("tileLoaded",
     () => params.eventHandler.emitEvent("tileLoaded"),
     false);
 
   // Set up interactive toggling of layer visibility
   styleDoc.layers.forEach(l => {
     // TODO: use functionalized visibility from tile-stencil?
-    let visibility = l.layout ? l.layout.visibility : false;
+    const visibility = l.layout ? l.layout.visibility : false;
     l.visible = (!visibility || visibility === "visible");
   });
 
@@ -8094,7 +8127,7 @@ function setup(styleDoc, params, api) {
   };
 
   api.select = initSelector(sources, params.projection);
-  
+
   return api;
 }
 

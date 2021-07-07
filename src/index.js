@@ -1,5 +1,5 @@
 import { setParams } from "./params.js";
-import { loadStyle } from 'tile-stencil';
+import { loadStyle } from "tile-stencil";
 import { initSources } from "./sources.js";
 import { initRenderer } from "./renderer.js";
 import { initSelector } from "./selection.js";
@@ -28,14 +28,14 @@ export function init(userParams) {
 
 function setup(styleDoc, params, api) {
   const sources = initSources(styleDoc, params.context, api);
-  sources.reporter.addEventListener("tileLoaded", 
+  sources.reporter.addEventListener("tileLoaded",
     () => params.eventHandler.emitEvent("tileLoaded"),
     false);
 
   // Set up interactive toggling of layer visibility
   styleDoc.layers.forEach(l => {
     // TODO: use functionalized visibility from tile-stencil?
-    let visibility = l.layout ? l.layout.visibility : false;
+    const visibility = l.layout ? l.layout.visibility : false;
     l.visible = (!visibility || visibility === "visible");
   });
 
@@ -55,6 +55,6 @@ function setup(styleDoc, params, api) {
   };
 
   api.select = initSelector(sources, params.projection);
-  
+
   return api;
 }
