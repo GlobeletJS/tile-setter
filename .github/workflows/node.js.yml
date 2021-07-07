@@ -26,6 +26,11 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
+    - name: Reconfigure git to use HTTP authentication
+      # https://github.com/actions/setup-node/issues/214#issuecomment-842538631
+      run: >
+        git config --global url."https://github.com/".insteadOf
+        ssh://git@github.com/
     - run: npm ci
     - run: npm run build --if-present
     - run: npm test
