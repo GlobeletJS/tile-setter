@@ -1,5 +1,7 @@
 # tile-setter
 
+![tests](https://github.com/GlobeletJS/tile-setter/actions/workflows/node.js.yml/badge.svg)
+
 Tiled vector map powered by a lightweight WebGL renderer
 
 Rendering is guided by a [MapLibre style document][MapLibre]. See a simple
