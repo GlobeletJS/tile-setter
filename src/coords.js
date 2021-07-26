@@ -38,12 +38,9 @@ export function initCoords({ size, center, zoom, clampY, projection }) {
     return Math.max(0, Math.log2(transform.k / pixRatio) - 9);
   }
 
-  function setTransform(rawTransform, pixRatio = 1) {
+  function setTransform({ k, x, y }, pixRatio = 1) {
     // Input transforms map coordinates [x, y] into viewport coordinates
-    // Units are in pixels
-    const kRaw = rawTransform.k * pixRatio;
-    const xRaw = rawTransform.x * pixRatio;
-    const yRaw = rawTransform.y * pixRatio;
+    const [kRaw, xRaw, yRaw] = [k, x, y].map(c => c * pixRatio);
 
     // Round kRaw to ensure tile pixels align with screen pixels
     const z = Math.log2(kRaw) - logTileSize;

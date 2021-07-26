@@ -31,11 +31,11 @@ function initUrlFunc(endpoints) {
   }
 
   // Use a different endpoint for each request
-  var index = 0;
+  let index = 0;
 
   return function(z, x, y) {
     index = (index + 1) % endpoints.length;
-    var endpoint = endpoints[index];
+    const endpoint = endpoints[index];
     return endpoint
       .replace(/{z}/, z)
       .replace(/{x}/, x)

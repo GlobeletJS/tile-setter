@@ -1,7 +1,8 @@
+const { cos, tan, atan, exp, log, PI, min, max } = Math;
 // Maximum latitude for Web Mercator: 85.0113 degrees. Beware rounding!
-const maxMercLat = 2.0 * Math.atan( Math.exp(Math.PI) ) - Math.PI / 2.0;
-const clipLat = (lat) => Math.min(Math.max(-maxMercLat, lat), maxMercLat);
-const degrees = 180.0 / Math.PI;
+const maxMercLat = 2.0 * atan(exp(PI)) - PI / 2.0;
+const clipLat = (lat) => min(max(-maxMercLat, lat), maxMercLat);
+const degrees = 180.0 / PI;
 
 function getProjection(units) {
   switch (units) {
@@ -31,22 +32,18 @@ function getProjection(units) {
 function forward([lon, lat]) {
   // Convert input longitude in radians to a Web Mercator x-coordinate
   // where x = 0 at lon = -PI, x = 1 at lon = +PI
-  const x = 0.5 + 0.5 * lon / Math.PI;
+  const x = 0.5 + 0.5 * lon / PI;
 
   // Convert input latitude in radians to a Web Mercator y-coordinate
   // where y = 0 at lat = maxMercLat, y = 1 at lat = -maxMercLat
-  let y = 0.5 - 0.5 / Math.PI *
-    Math.log( Math.tan(Math.PI / 4.0 + clipLat(lat) / 2.0) );
+  const y = 0.5 - 0.5 / PI *
+    log(tan(PI / 4.0 + clipLat(lat) / 2.0));
 
   // Clip y to the range [0, 1] (it does not wrap around)
-  y = Math.min(Math.max(0.0, y), 1.0);
-
-  return [x, y];
+  return [x, min(max(0.0, y), 1.0)];
 }
 
 function inverse([x, y]) {
-  const { atan, exp, PI } = Math;
-
   const lon = 2.0 * (x - 0.5) * PI;
   const lat = 2.0 * atan(exp(PI * (1.0 - 2.0 * y))) - PI / 2;
 
@@ -54,12 +51,12 @@ function inverse([x, y]) {
 }
 
 function scale(point) {
-  const lat = point[1];
+  const lat = clipLat(point[1]);
   // Return value scales a (differential) distance along the plane tangent to
   // the sphere at [lon, lat] to a distance in map coordinates.
   // NOTE: ASSUMES a sphere of radius 1! Input distances should be
   //  pre-normalized by the appropriate radius
-  return 1 / (2 * Math.PI * Math.cos( clipLat(lat) ));
+  return 1 / (2 * PI * cos(lat));
 }
 
 function initCoords({ size, center, zoom, clampY, projection }) {
@@ -102,12 +99,9 @@ function initCoords({ size, center, zoom, clampY, projection }) {
     return Math.max(0, Math.log2(transform.k / pixRatio) - 9);
   }
 
-  function setTransform(rawTransform, pixRatio = 1) {
+  function setTransform({ k, x, y }, pixRatio = 1) {
     // Input transforms map coordinates [x, y] into viewport coordinates
-    // Units are in pixels
-    const kRaw = rawTransform.k * pixRatio;
-    const xRaw = rawTransform.x * pixRatio;
-    const yRaw = rawTransform.y * pixRatio;
+    const [kRaw, xRaw, yRaw] = [k, x, y].map(c => c * pixRatio);
 
     // Round kRaw to ensure tile pixels align with screen pixels
     const z = Math.log2(kRaw) - logTileSize;
@@ -168,8 +162,8 @@ function initBackground(context) {
     const { paint } = style;
 
     return function({ zoom }) {
-      let opacity = paint["background-opacity"](zoom);
-      let color = paint["background-color"](zoom);
+      const opacity = paint["background-opacity"](zoom);
+      const color = paint["background-color"](zoom);
       context.clear(color.map(c => c * opacity));
     };
   }
@@ -275,13 +269,13 @@ function initGrid(framebufferSize, useProgram, setters) {
     [0, 1, 2].forEach(addSubset);
 
     function addSubset(repeat) {
-      let shift = repeat * numTiles;
-      let tiles = tileset.filter(tile => {
-        let delta = tile.x - x;
+      const shift = repeat * numTiles;
+      const tiles = tileset.filter(tile => {
+        const delta = tile.x - x;
         return (delta >= shift && delta < shift + numTiles);
       });
       if (!tiles.length) return;
-      let setter = () => mapShift([dx + shift * pixScale, dy, pixScale]);
+      const setter = () => mapShift([dx + shift * pixScale, dy, pixScale]);
       subsets.push({ tiles, setter });
     }
 
@@ -308,7 +302,7 @@ function initSetters(pairs, uniformSetters) {
   return pairs
     .filter(([get]) => get.type !== "property")
     .map(([get, key]) => {
-      let set = uniformSetters[key];
+      const set = uniformSetters[key];
       return (z, f) => set(get(z, f));
     });
 }
@@ -353,7 +347,7 @@ function initCircle(context, framebufferSize, preamble) {
 
   function load(buffers) {
     const attributes = Object.entries(attrInfo).reduce((d, [key, info]) => {
-      let data = buffers[key];
+      const data = buffers[key];
       if (data) d[key] = initAttribute(Object.assign({ data }, info));
       return d;
     }, { quadPos });
@@ -523,7 +517,7 @@ function initLineLoader(context, constructVao) {
     }
 
     const attributes = Object.entries(attrInfo).reduce((d, [key, info]) => {
-      let data = buffers[key];
+      const data = buffers[key];
       if (data) d[key] = initAttribute(Object.assign({ data }, info));
       return d;
     }, geometryAttributes);
@@ -604,7 +598,7 @@ function initFillLoader(context, constructVao) {
 
   return function(buffers) {
     const attributes = Object.entries(attrInfo).reduce((d, [key, info]) => {
-      let data = buffers[key];
+      const data = buffers[key];
       if (data) d[key] = initAttribute(Object.assign({ data }, info));
       return d;
     }, {});
@@ -700,7 +694,7 @@ function initTextLoader(context, constructVao) {
 
   return function(buffers) {
     const attributes = Object.entries(attrInfo).reduce((d, [key, info]) => {
-      let data = buffers[key];
+      const data = buffers[key];
       if (data) d[key] = initAttribute(Object.assign({ data }, info));
       return d;
     }, { quadPos });
@@ -800,7 +794,7 @@ function initEventHandler() {
 
   const events = {};    // { type1: data1, type2: data2, ... }
   const listeners = {}; // { type1: { id1: func1, id2: func2, ...}, type2: ... }
-  var globalID = 0;
+  let globalID = 0;
 
   function emitEvent(type, data = "1") {
     events[type] = data;
@@ -1376,13 +1370,13 @@ function buildInterpolator(stops, base = 1) {
   const interpolate = getInterpolator(type);
 
   return function(x) {
-    let iz = stops.findIndex(stop => stop[0] > x);
+    const iz = stops.findIndex(stop => stop[0] > x);
 
     if (iz === 0) return stops[0][1]; // x is below first stop
     if (iz < 0) return stops[izm][1]; // x is above last stop
 
-    let [x0, y0] = stops[iz - 1];
-    let [x1, y1] = stops[iz];
+    const [x0, y0] = stops[iz - 1];
+    const [x1, y1] = stops[iz];
 
     return interpolate(y0, scale(x0, x, x1), y1);
   };
@@ -1395,7 +1389,7 @@ function getType(v) {
 function convertIfColor(val) {
   // Convert CSS color strings to clamped RGBA arrays for WebGL
   if (!color(val)) return val;
-  let c = rgb(val);
+  const c = rgb(val);
   return [c.r / 255, c.g / 255, c.b / 255, c.opacity];
 }
 
@@ -1820,23 +1814,23 @@ initZeroTimeouts$1();
 function initZeroTimeouts$1() {
   // setTimeout with true zero delay. https://github.com/GlobeletJS/zero-timeout
   const timeouts = [];
-  var taskId = 0;
+  let taskId = 0;
 
   // Make a unique message, that won't be confused with messages from
   // other scripts or browser tabs
   const messageKey = "zeroTimeout_$" + Math.random().toString(36).slice(2);
 
   // Make it clear where the messages should be coming from
-  const loc = window.location;
-  var targetOrigin = loc.protocol + "//" + loc.hostname;
-  if (loc.port !== "") targetOrigin += ":" + loc.port;
+  const { protocol, hostname, port } = window.location;
+  let targetOrigin = protocol + "//" + hostname;
+  if (port !== "") targetOrigin += ":" + port;
 
   // When a message is received, execute a timeout from the list
   window.addEventListener("message", evnt => {
     if (evnt.source != window || evnt.data !== messageKey) return;
     evnt.stopPropagation();
 
-    let task = timeouts.shift();
+    const task = timeouts.shift();
     if (!task || task.canceled) return;
     task.func(...task.args);
   }, true);
@@ -1850,15 +1844,15 @@ function initZeroTimeouts$1() {
   };
 
   window.clearZeroTimeout = function(id) {
-    let task = timeouts.find(timeout => timeout.id === id);
+    const task = timeouts.find(timeout => timeout.id === id);
     if (task) task.canceled = true;
   };
 }
 
 function init$2() {
   const tasks = [];
-  var taskId = 0;
-  var queueIsRunning = false;
+  let taskId = 0;
+  let queueIsRunning = false;
 
   return {
     enqueueTask,
@@ -1880,7 +1874,7 @@ function init$2() {
   }
 
   function cancelTask(id) {
-    let task = tasks.find(task => task.id === id);
+    const task = tasks.find(task => task.id === id);
     if (task) task.canceled = true;
   }
 
@@ -1901,7 +1895,7 @@ function init$2() {
     if (!queueIsRunning) return;
 
     // Get the next chunk from the current task, and run it
-    let chunk = tasks[0].chunks.shift();
+    const chunk = tasks[0].chunks.shift();
     chunk();
 
     window.setZeroTimeout(runTaskQueue);
@@ -1917,23 +1911,23 @@ initZeroTimeouts();
 function initZeroTimeouts() {
   // setTimeout with true zero delay. https://github.com/GlobeletJS/zero-timeout
   const timeouts = [];
-  var taskId = 0;
+  let taskId = 0;
 
   // Make a unique message, that won't be confused with messages from
   // other scripts or browser tabs
   const messageKey = "zeroTimeout_$" + Math.random().toString(36).slice(2);
 
   // Make it clear where the messages should be coming from
-  const loc = window.location;
-  var targetOrigin = loc.protocol + "//" + loc.hostname;
-  if (loc.port !== "") targetOrigin += ":" + loc.port;
+  const { protocol, hostname, port } = window.location;
+  let targetOrigin = protocol + "//" + hostname;
+  if (port !== "") targetOrigin += ":" + port;
 
   // When a message is received, execute a timeout from the list
   window.addEventListener("message", evnt => {
     if (evnt.source != window || evnt.data !== messageKey) return;
     evnt.stopPropagation();
 
-    let task = timeouts.shift();
+    const task = timeouts.shift();
     if (!task || task.canceled) return;
     task.func(...task.args);
   }, true);
@@ -1947,15 +1941,15 @@ function initZeroTimeouts() {
   };
 
   window.clearZeroTimeout = function(id) {
-    let task = timeouts.find(timeout => timeout.id === id);
+    const task = timeouts.find(timeout => timeout.id === id);
     if (task) task.canceled = true;
   };
 }
 
 function init$1() {
   const tasks = [];
-  var taskId = 0;
-  var queueIsRunning = false;
+  let taskId = 0;
+  let queueIsRunning = false;
 
   return {
     enqueueTask,
@@ -1977,7 +1971,7 @@ function init$1() {
   }
 
   function cancelTask(id) {
-    let task = tasks.find(task => task.id === id);
+    const task = tasks.find(task => task.id === id);
     if (task) task.canceled = true;
   }
 
@@ -1998,7 +1992,7 @@ function init$1() {
     if (!queueIsRunning) return;
 
     // Get the next chunk from the current task, and run it
-    let chunk = tasks[0].chunks.shift();
+    const chunk = tasks[0].chunks.shift();
     chunk();
 
     window.setZeroTimeout(runTaskQueue);
@@ -2056,7 +2050,7 @@ function initWorkers(codeHref, params) {
   const { threads, glyphs, layers, source } = params;
 
   const tasks = {};
-  var msgId = 0;
+  let msgId = 0;
 
   // Initialize the worker threads, and send them the styles
   function trainWorker() {
@@ -2523,13 +2517,13 @@ function buildInterpolator(stops, base = 1) {
   const interpolate = getInterpolator(type);
 
   return function(x) {
-    let iz = stops.findIndex(stop => stop[0] > x);
+    const iz = stops.findIndex(stop => stop[0] > x);
 
     if (iz === 0) return stops[0][1]; // x is below first stop
     if (iz < 0) return stops[izm][1]; // x is above last stop
 
-    let [x0, y0] = stops[iz - 1];
-    let [x1, y1] = stops[iz];
+    const [x0, y0] = stops[iz - 1];
+    const [x1, y1] = stops[iz];
 
     return interpolate(y0, scale(x0, x, x1), y1);
   };
@@ -2542,7 +2536,7 @@ function getType(v) {
 function convertIfColor(val) {
   // Convert CSS color strings to clamped RGBA arrays for WebGL
   if (!color(val)) return val;
-  let c = rgb(val);
+  const c = rgb(val);
   return [c.r / 255, c.g / 255, c.b / 255, c.opacity];
 }
 
@@ -2811,15 +2805,15 @@ function buildFeatureFilter(filterObj) {
   // If this is a combined filter, the vals are themselves filter definitions
   switch (type) {
     case "all": {
-      let filters = vals.map(buildFeatureFilter);  // Iteratively recursive!
+      const filters = vals.map(buildFeatureFilter);  // Iteratively recursive!
       return (d) => filters.every( filt => filt(d) );
     }
     case "any": {
-      let filters = vals.map(buildFeatureFilter);
+      const filters = vals.map(buildFeatureFilter);
       return (d) => filters.some( filt => filt(d) );
     }
     case "none": {
-      let filters = vals.map(buildFeatureFilter);
+      const filters = vals.map(buildFeatureFilter);
       return (d) => filters.every( filt => !filt(d) );
     }
     default:
@@ -2869,7 +2863,7 @@ function initFeatureValGetter(key) {
     case "$type":
       // NOTE: data includes MultiLineString, MultiPolygon, etc-NOT IN SPEC
       return f => {
-        let t = f.geometry.type;
+        const t = f.geometry.type;
         if (t === "MultiPoint") return "Point";
         if (t === "MultiLineString") return "LineString";
         if (t === "MultiPolygon") return "Polygon";
@@ -3749,7 +3743,7 @@ function copyImage(srcImg, dstImg, srcPt, dstPt, size, channels) {
 }
 
 function outOfRange(point, size, image) {
-  let { width, height } = size;
+  const { width, height } = size;
   return (
     width > image.width ||
     height > image.height ||
@@ -3948,7 +3942,7 @@ function buildAtlas(fonts) {
   // Using the updated rects, copy all the bitmaps into one image
   const image = new AlphaImage({ width: w || 1, height: h || 1 });
   Object.entries(fonts).forEach(([font, glyphs]) => {
-    let fontPos = positions[font];
+    const fontPos = positions[font];
     glyphs.forEach(glyph => copyGlyphBitmap(glyph, fontPos, image));
   });
 
@@ -3957,32 +3951,32 @@ function buildAtlas(fonts) {
 
 function getPositions(glyphs) {
   return glyphs.reduce((dict, glyph) => {
-    let pos = getPosition(glyph);
+    const pos = getPosition(glyph);
     if (pos) dict[glyph.id] = pos;
     return dict;
   }, {});
 }
 
 function getPosition(glyph) {
-  let { bitmap: { width, height }, metrics } = glyph;
+  const { bitmap: { width, height }, metrics } = glyph;
   if (width === 0 || height === 0) return;
 
   // Construct a preliminary rect, positioned at the origin for now
-  let w = width + 2 * ATLAS_PADDING$1;
-  let h = height + 2 * ATLAS_PADDING$1;
-  let rect = { x: 0, y: 0, w, h };
+  const w = width + 2 * ATLAS_PADDING$1;
+  const h = height + 2 * ATLAS_PADDING$1;
+  const rect = { x: 0, y: 0, w, h };
 
   return { metrics, rect };
 }
 
 function copyGlyphBitmap(glyph, positions, image) {
-  let { id, bitmap } = glyph;
-  let position = positions[id];
+  const { id, bitmap } = glyph;
+  const position = positions[id];
   if (!position) return;
 
-  let srcPt = { x: 0, y: 0 };
-  let { x, y } = position.rect;
-  let dstPt = { x: x + ATLAS_PADDING$1, y: y + ATLAS_PADDING$1 };
+  const srcPt = { x: 0, y: 0 };
+  const { x, y } = position.rect;
+  const dstPt = { x: x + ATLAS_PADDING$1, y: y + ATLAS_PADDING$1 };
   AlphaImage.copy(bitmap, image, srcPt, dstPt, bitmap);
 }
 
@@ -4006,7 +4000,7 @@ function initGetter(urlTemplate, key) {
     const fontGlyphs = {};
 
     const promises = Object.entries(fontCodes).map(([font, codes]) => {
-      let requests = Array.from(codes, code => getGlyph(font, code));
+      const requests = Array.from(codes, code => getGlyph(font, code));
 
       return Promise.all(requests).then(glyphs => {
         fontGlyphs[font] = glyphs.filter(g => g !== undefined);
@@ -4025,25 +4019,25 @@ function getTokenParser(tokenText) {
 
   // We break tokenText into pieces that are either plain text or tokens,
   // then construct an array of functions to parse each piece
-  var tokenFuncs = [];
-  var charIndex  = 0;
+  const tokenFuncs = [];
+  let charIndex  = 0;
   while (charIndex < tokenText.length) {
     // Find the next token
-    let result = tokenPattern.exec(tokenText);
+    const result = tokenPattern.exec(tokenText);
 
     if (!result) {
       // No tokens left. Parse the plain text after the last token
-      let str = tokenText.substring(charIndex);
+      const str = tokenText.substring(charIndex);
       tokenFuncs.push(() => str);
       break;
     } else if (result.index > charIndex) {
       // There is some plain text before the token
-      let str = tokenText.substring(charIndex, result.index);
+      const str = tokenText.substring(charIndex, result.index);
       tokenFuncs.push(() => str);
     }
 
     // Add a function to process the current token
-    let token = result[1];
+    const token = result[1];
     tokenFuncs.push(props => props[token]);
     charIndex = tokenPattern.lastIndex;
   }
@@ -4054,7 +4048,7 @@ function getTokenParser(tokenText) {
   return function(properties) {
     return tokenFuncs.reduce(concat, "");
     function concat(str, tokenFunc) {
-      let text = tokenFunc(properties) || "";
+      const text = tokenFunc(properties) || "";
       return str += text;
     }
   };
@@ -4139,7 +4133,7 @@ function initCircleParsing(style) {
     };
 
     dataFuncs.forEach(([get, key]) => {
-      let val = get(null, feature);
+      const val = get(null, feature);
       buffers[key] = Array.from({ length }).flatMap(() => val);
     });
 
@@ -4181,7 +4175,7 @@ function initLineParsing(style) {
     };
 
     dataFuncs.forEach(([get, key]) => {
-      let val = get(null, feature);
+      const val = get(null, feature);
       buffers[key] = Array.from({ length }).flatMap(() => val);
     });
 
@@ -4190,7 +4184,7 @@ function initLineParsing(style) {
 }
 
 function flattenLines(geometry) {
-  let { type, coordinates } = geometry;
+  const { type, coordinates } = geometry;
 
   switch (type) {
     case "LineString":
@@ -4507,7 +4501,7 @@ function eliminateHoles(data, holeIndices, outerNode, dim) {
 
     // process holes from left to right
     for (i = 0; i < queue.length; i++) {
-        eliminateHole(queue[i], outerNode);
+        outerNode = eliminateHole(queue[i], outerNode);
         outerNode = filterPoints(outerNode, outerNode.next);
     }
 
@@ -4520,14 +4514,19 @@ function compareX(a, b) {
 
 // find a bridge between vertices that connects hole with an outer ring and and link it
 function eliminateHole(hole, outerNode) {
-    outerNode = findHoleBridge(hole, outerNode);
-    if (outerNode) {
-        var b = splitPolygon(outerNode, hole);
-
-        // filter collinear points around the cuts
-        filterPoints(outerNode, outerNode.next);
-        filterPoints(b, b.next);
+    var bridge = findHoleBridge(hole, outerNode);
+    if (!bridge) {
+        return outerNode;
     }
+
+    var bridgeReverse = splitPolygon(bridge, hole);
+
+    // filter collinear points around the cuts
+    var filteredBridge = filterPoints(bridge, bridge.next);
+    filterPoints(bridgeReverse, bridgeReverse.next);
+
+    // Check if input node was removed by the filtering
+    return outerNode === bridge ? filteredBridge : outerNode;
 }
 
 // David Eberly's algorithm for finding a bridge between hole and outer polygon
@@ -4931,7 +4930,7 @@ function initFillParsing(style) {
     };
 
     dataFuncs.forEach(([get, key]) => {
-      let val = get(null, feature);
+      const val = get(null, feature);
       buffers[key] = Array.from({ length }).flatMap(() => val);
     });
 
@@ -4947,7 +4946,7 @@ function triangulate(geometry) {
       return indexPolygon(coordinates);
     case "MultiPolygon":
       return coordinates.map(indexPolygon).reduce((acc, cur) => {
-        let indexShift = acc.vertices.length / 2;
+        const indexShift = acc.vertices.length / 2;
         acc.vertices.push(...cur.vertices);
         acc.indices.push(...cur.indices.map(h => h + indexShift));
         return acc;
@@ -4958,8 +4957,8 @@ function triangulate(geometry) {
 }
 
 function indexPolygon(coords) {
-  let { vertices, holes, dimensions } = earcut$1.flatten(coords);
-  let indices = earcut$1(vertices, holes, dimensions);
+  const { vertices, holes, dimensions } = earcut$1.flatten(coords);
+  const indices = earcut$1(vertices, holes, dimensions);
   return { vertices, indices };
 }
 
@@ -4971,14 +4970,14 @@ const ATLAS_PADDING = 1;
 const RECT_BUFFER = GLYPH_PBF_BORDER + ATLAS_PADDING;
 
 function layoutLine(glyphs, origin, spacing, scalar) {
-  var xCursor = origin[0];
+  let xCursor = origin[0];
   const y0 = origin[1];
 
   return glyphs.flatMap(g => {
-    let { left, top, advance } = g.metrics;
+    const { left, top, advance } = g.metrics;
 
-    let dx = xCursor + left - RECT_BUFFER;
-    let dy = y0 - top - RECT_BUFFER;
+    const dx = xCursor + left - RECT_BUFFER;
+    const dy = y0 - top - RECT_BUFFER;
 
     xCursor += advance + spacing;
 
@@ -4993,9 +4992,9 @@ function getGlyphInfo(feature, atlas) {
   if (!positions || !charCodes || !charCodes.length) return;
 
   const info = feature.charCodes.map(code => {
-    let pos = positions[code];
+    const pos = positions[code];
     if (!pos) return;
-    let { metrics, rect } = pos;
+    const { metrics, rect } = pos;
     return { code, metrics, rect };
   });
 
@@ -5078,14 +5077,14 @@ function getBreakPoints(glyphs, spacing, targetWidth) {
   let cursor = 0;
 
   glyphs.forEach((g, i) => {
-    let { code, metrics: { advance } } = g;
+    const { code, metrics: { advance } } = g;
     if (!whitespace[code]) cursor += advance + spacing;
 
     if (i == last) return;
     // if (!breakable[code]&& !charAllowsIdeographicBreaking(code)) return;
     if (!breakable[code]) return;
 
-    let breakInfo = evaluateBreak(
+    const breakInfo = evaluateBreak(
       i + 1,
       cursor,
       targetWidth,
@@ -5183,7 +5182,7 @@ function breakLines(glyphs, breakPoints) {
   let start = 0;
 
   return breakPoints.map(lineBreak => {
-    let line = glyphs.slice(start, lineBreak);
+    const line = glyphs.slice(start, lineBreak);
 
     // Trim whitespace from both ends
     while (line.length && whitespace[line[0].code]) line.shift();
@@ -5195,7 +5194,7 @@ function breakLines(glyphs, breakPoints) {
 }
 
 function trailingWhiteSpace(line) {
-  let len = line.length;
+  const len = line.length;
   if (!len) return false;
   return whitespace[line[len - 1].code];
 }
@@ -5231,8 +5230,8 @@ function initShaper(layout) {
     const justify = layout["text-justify"](zoom, feature);
     const lineShiftX = getLineShift(justify, boxShift[0]);
     const lineOrigins = lineWidths.map((lineWidth, i) => {
-      let x = (boxSize[0] - lineWidth) * lineShiftX + boxOrigin[0];
-      let y = i * lineHeight + boxOrigin[1];
+      const x = (boxSize[0] - lineWidth) * lineShiftX + boxOrigin[0];
+      const y = i * lineHeight + boxOrigin[1];
       return [x, y];
     });
 
@@ -5281,8 +5280,8 @@ function initShaping(style) {
     const buffers = shaper(feature, z, atlas);
     if (!buffers) return;
 
-    let { labelPos: [x0, y0], bbox } = buffers;
-    let box = {
+    const { labelPos: [x0, y0], bbox } = buffers;
+    const box = {
       minX: x0 + bbox[0],
       minY: y0 + bbox[1],
       maxX: x0 + bbox[2],
@@ -5296,7 +5295,7 @@ function initShaping(style) {
     buffers.tileCoords = Array.from({ length }).flatMap(() => [x, y, z]);
 
     dataFuncs.forEach(([get, key]) => {
-      let val = get(null, feature);
+      const val = get(null, feature);
       buffers[key] = Array.from({ length }).flatMap(() => val);
     });
 
@@ -6321,7 +6320,7 @@ function xhrErr(...strings) {
 
 function initUrlFunc(endpoints) {
   // Use a different endpoint for each request
-  var index = 0;
+  let index = 0;
 
   return function(z, x, y) {
     index = (index + 1) % endpoints.length;
@@ -7261,7 +7260,7 @@ function geojsonvtToJSON(value) {
 }
 
 const tasks = {};
-var loader, processor;
+let loader, processor;
 
 onmessage = function(msgEvent) {
   const { id, type, payload } = msgEvent.data;
@@ -7428,7 +7427,7 @@ function initCache({ create, size = 512 }) {
   }
 
   function drop(condition) {
-    var numTiles = 0;
+    let numTiles = 0;
     for (const id in tiles) {
       if (condition(tiles[id])) {
         tiles[id].cancel();
@@ -7672,7 +7671,7 @@ function initTileGrid({ key, source, tileCache }) {
   const { tileSize = 512, maxzoom = 30 } = source;
   const outOfBounds = initBoundsCheck(source);
 
-  var numTiles = 0;
+  let numTiles = 0;
 
   // Set up the tile layout
   const layout = tile()
@@ -7694,7 +7693,7 @@ function initTileGrid({ key, source, tileCache }) {
     };
 
     // Retrieve a tile box for every tile in the grid
-    var tilesDone = 0;
+    let tilesDone = 0;
     const grid = tiles.map(([x, y, z]) => {
       const [xw, yw, zw] = tileWrap([x, y, z]);
 

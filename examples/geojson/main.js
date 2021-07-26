@@ -1,5 +1,5 @@
-import * as yawgl from 'yawgl';
-import * as d3 from 'd3';
+import * as yawgl from "yawgl";
+import * as d3 from "d3";
 import * as tileMap from "../../";
 
 export function main() {
@@ -12,7 +12,7 @@ export function main() {
   tileMap.init({
     context,
     center: [0, 30],
-    zoom: 2,
+    zoom: 2 + Math.log2(window.devicePixelRatio),
     style: "klokantech-basic-style-geojson-sampler.json",
   }).promise.then(api => setup(api, canvas))
     .catch(console.log);
@@ -21,8 +21,8 @@ export function main() {
 function setup(api, canvas) {
   const viewport = api.getViewport(window.devicePixelRatio);
 
-  const { k, x, y } = api.getTransform();
-  var transform = d3.zoomIdentity
+  const { k, x, y } = api.getTransform(window.devicePixelRatio);
+  let transform = d3.zoomIdentity
     .translate(x, y)
     .scale(k);
 
@@ -30,7 +30,7 @@ function setup(api, canvas) {
     .scaleExtent([1 << 10, 1 << 26])
     .extent([[0, 0], viewport])
     .translateExtent([[-Infinity, -0.5], [Infinity, 0.5]])
-    .on("zoom", (event) => { 
+    .on("zoom", (event) => {
       transform = event.transform;
     });
 
@@ -41,10 +41,10 @@ function setup(api, canvas) {
   const loadStatus = document.getElementById("loadStatus");
 
   requestAnimationFrame(animate);
-  function animate(time) {
-    let pixRatio = window.devicePixelRatio;
-    let resized = yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
-    api.setTransform(transform);
+  function animate() {
+    const pixRatio = window.devicePixelRatio;
+    yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
+    api.setTransform(transform, pixRatio);
     const percent = api.draw(pixRatio) * 100;
     loadStatus.innerHTML = (percent < 100)
       ? "Loading: " + percent.toFixed(0) + "%"

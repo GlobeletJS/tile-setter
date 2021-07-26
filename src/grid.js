@@ -6,7 +6,7 @@ export function initTileGrid({ key, source, tileCache }) {
   const { tileSize = 512, maxzoom = 30 } = source;
   const outOfBounds = initBoundsCheck(source);
 
-  var numTiles = 0;
+  let numTiles = 0;
 
   // Set up the tile layout
   const layout = d3.tile()
@@ -28,7 +28,7 @@ export function initTileGrid({ key, source, tileCache }) {
     };
 
     // Retrieve a tile box for every tile in the grid
-    var tilesDone = 0;
+    let tilesDone = 0;
     const grid = tiles.map(([x, y, z]) => {
       const [xw, yw, zw] = d3.tileWrap([x, y, z]);
 

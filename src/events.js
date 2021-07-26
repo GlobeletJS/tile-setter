@@ -4,7 +4,7 @@ export function initEventHandler() {
 
   const events = {};    // { type1: data1, type2: data2, ... }
   const listeners = {}; // { type1: { id1: func1, id2: func2, ...}, type2: ... }
-  var globalID = 0;
+  let globalID = 0;
 
   function emitEvent(type, data = "1") {
     events[type] = data;

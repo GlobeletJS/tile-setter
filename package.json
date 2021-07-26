@@ -37,16 +37,16 @@
     "@turf/boolean-point-in-polygon": "^6.0.1",
     "d3": "^6.2.0",
     "eslint": "^7.30.0",
-    "eslint-config-globeletjs": "^0.0.5",
+    "eslint-config-globeletjs": "^0.0.6",
     "rollup": "^2.52.8",
-    "yawgl": "^0.3.2"
+    "yawgl": "^0.3.3"
   },
   "dependencies": {
-    "chunked-queue": "^0.1.3",
+    "chunked-queue": "^0.1.4",
     "d3-tile": "github:GlobeletJS/d3-tile",
-    "tile-gl": "^0.1.1",
-    "tile-mixer": "^0.1.1",
-    "tile-rack": "^1.0.3",
-    "tile-stencil": "^0.4.3"
+    "tile-gl": "^0.1.3",
+    "tile-mixer": "^0.1.2",
+    "tile-rack": "^1.0.4",
+    "tile-stencil": "^0.4.4"
   }
 }

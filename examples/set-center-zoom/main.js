@@ -27,8 +27,8 @@ function setup(api, canvas) {
 
   requestAnimationFrame(animate);
   function animate(time) {
-    let pixRatio = window.devicePixelRatio;
-    let resized = yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
+    const pixRatio = window.devicePixelRatio;
+    yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
 
     const [longitude, latitude, zoom] = Object.values(control)
       .map(v => v.valueAsNumber);
