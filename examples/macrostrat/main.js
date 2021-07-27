@@ -12,7 +12,7 @@ export function main() {
   tileMap.init({
     context,
     center: [-85.0, 36.0],
-    zoom: 7 + Math.log2(window.devicePixelRatio),
+    zoom: 7,
     style: "./light-macrostrat.json",
     // eslint-disable-next-line max-len
     mapboxToken: "pk.eyJ1IjoiamhlbWJkIiwiYSI6ImNqcHpueHpyZjBlMjAzeG9kNG9oNzI2NTYifQ.K7fqhk2Z2YZ8NIV94M-5nA",
@@ -21,9 +21,9 @@ export function main() {
 }
 
 function setup(api, canvas) {
-  const viewport = api.getViewport(window.devicePixelRatio);
+  const viewport = api.getViewport();
 
-  const { k, x, y } = api.getTransform(window.devicePixelRatio);
+  const { k, x, y } = api.getTransform();
   let transform = d3.zoomIdentity
     .translate(x, y)
     .scale(k);
@@ -46,7 +46,7 @@ function setup(api, canvas) {
   function animate() {
     const pixRatio = window.devicePixelRatio;
     yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
-    api.setTransform(transform, pixRatio);
+    api.setTransform(transform);
     const percent = api.draw(pixRatio) * 100;
     loadStatus.innerHTML = (percent < 100)
       ? "Loading: " + percent.toFixed(0) + "%"

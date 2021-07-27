@@ -59,9 +59,10 @@ function scale(point) {
   return 1 / (2 * PI * cos(lat));
 }
 
-function initCoords({ size, center, zoom, clampY, projection }) {
+function initCoords({ getViewport, center, zoom, clampY, projection }) {
+  const { log2, min, max, round, floor } = Math;
   const minTileSize = 256;
-  const logTileSize = Math.log2(minTileSize);
+  const logTileSize = log2(minTileSize);
 
   const transform = {
     k: 1, // Size of the world map, in pixels
@@ -75,8 +76,8 @@ function initCoords({ size, center, zoom, clampY, projection }) {
 
   return {
     getViewport,
-    getTransform,
-    getZoom,
+    getTransform: () => Object.assign({}, transform),
+    getZoom: () => max(0, log2(transform.k) - 9),
     getCamPos: () => camPos.slice(),
     getScale: () => scale.slice(),
 
@@ -86,50 +87,37 @@ function initCoords({ size, center, zoom, clampY, projection }) {
     localToGlobal,
   };
 
-  function getViewport(pixRatio = 1) {
-    return [size.width / pixRatio, size.height / pixRatio];
-  }
-
-  function getTransform(pixRatio = 1) {
-    return Object.entries(transform)
-      .reduce((d, [k, v]) => (d[k] = v / pixRatio, d), {});
-  }
-
-  function getZoom(pixRatio = 1) {
-    return Math.max(0, Math.log2(transform.k / pixRatio) - 9);
-  }
-
-  function setTransform({ k, x, y }, pixRatio = 1) {
+  function setTransform({ k, x, y }) {
     // Input transforms map coordinates [x, y] into viewport coordinates
-    const [kRaw, xRaw, yRaw] = [k, x, y].map(c => c * pixRatio);
+    const [width, height] = getViewport();
 
-    // Round kRaw to ensure tile pixels align with screen pixels
-    const z = Math.log2(kRaw) - logTileSize;
-    const z0 = Math.floor(z);
-    const tileScale = Math.round(2 ** (z - z0) * minTileSize);
+    // Round k to ensure tile pixels align with screen pixels
+    const z = log2(k) - logTileSize;
+    const z0 = floor(z);
+    const tileScale = round(2 ** (z - z0) * minTileSize);
     const kNew = clampY
-      ? Math.max(2 ** z0 * tileScale, size.height)
+      ? max(2 ** z0 * tileScale, height)
       : 2 ** z0 * tileScale;
 
     // Adjust translation for the change in scale, and snap to pixel grid
-    const kScale = kNew / kRaw;
+    const kScale = kNew / k;
     // Keep the same map pixel at the center of the viewport
-    const sx = kScale * xRaw + (1 - kScale) * size.width / 2;
-    const sy = kScale * yRaw + (1 - kScale) * size.height / 2;
+    const sx = kScale * x + (1 - kScale) * width / 2;
+    const sy = kScale * y + (1 - kScale) * height / 2;
     // Limit Y so the map doesn't cross a pole
     const yLim = clampY
-      ? Math.min(Math.max(-kNew / 2 + size.height, sy), kNew / 2)
+      ? min(max(-kNew / 2 + height, sy), kNew / 2)
       : sy;
-    const [xNew, yNew] = [sx, yLim].map(Math.round);
+    const [xNew, yNew] = [sx, yLim].map(round);
 
     // Make sure camera is still pointing at the original location: shift from
     // the center [0.5, 0.5] by the change in the translation due to rounding
-    camPos[0] = 0.5 + (xNew - sx) / size.width;
-    camPos[1] = 0.5 + (yNew - sy) / size.height;
+    camPos[0] = 0.5 + (xNew - sx) / width;
+    camPos[1] = 0.5 + (yNew - sy) / height;
 
     // Store the scale of the current map relative to the entire world
-    scale[0] = kNew / size.width;
-    scale[1] = kNew / size.height;
+    scale[0] = kNew / width;
+    scale[1] = kNew / height;
 
     // Return a flag indicating whether the transform changed
     const { k: kOld, x: xOld, y: yOld } = transform;
@@ -138,12 +126,13 @@ function initCoords({ size, center, zoom, clampY, projection }) {
     return true;
   }
 
-  function setCenterZoom(c, z) {
-    const k = 512 * 2 ** z;
+  function setCenterZoom(center, zoom) {
+    const [width, height] = getViewport();
 
-    const [xr, yr] = projection.forward(c);
-    const x = (0.5 - xr) * k + size.width / 2;
-    const y = (0.5 - yr) * k + size.height / 2;
+    const k = 512 * 2 ** zoom;
+    const [xr, yr] = projection.forward(center);
+    const x = (0.5 - xr) * k + width / 2;
+    const y = (0.5 - yr) * k + height / 2;
 
     return setTransform({ k, x, y });
   }
@@ -788,50 +777,9 @@ function initGLpaint(context, framebuffer) {
   return { prep, loadBuffers, loadAtlas, initPainter };
 }
 
-function initEventHandler() {
-  // Stores events and listeners. Listeners will be executed even if
-  // the event occurred before the listener was added
-
-  const events = {};    // { type1: data1, type2: data2, ... }
-  const listeners = {}; // { type1: { id1: func1, id2: func2, ...}, type2: ... }
-  let globalID = 0;
-
-  function emitEvent(type, data = "1") {
-    events[type] = data;
-
-    const audience = listeners[type];
-    if (!audience) return;
-
-    Object.values(audience).forEach(listener => listener(data));
-  }
-
-  function addListener(type, listener) {
-    if (!listeners[type]) listeners[type] = {};
-
-    const id = ++globalID;
-    listeners[type][id] = listener;
-
-    if (events[type]) listener(events[type]);
-    return id;
-  }
-
-  function removeListener(type, id) {
-    const audience = listeners[type];
-    if (audience) delete audience[id];
-  }
-
-  return {
-    emitEvent,
-    addListener,
-    removeListener,
-  };
-}
-
 function setParams$1(userParams) {
   const gl = userParams.context.gl;
-  if (!(gl instanceof WebGLRenderingContext)) {
-    fail$1("no valid WebGL context");
-  }
+  if (!(gl instanceof WebGLRenderingContext)) fail$1("no valid WebGL context");
 
   const {
     context,
@@ -849,34 +797,38 @@ function setParams$1(userParams) {
     fail$1("no valid framebuffer");
   }
 
-  if (!size || !allPosInts(size.width, size.height)) {
-    fail$1("invalid size object");
-  }
-
-  if (!Array.isArray(center) || center.length < 2) {
-    fail$1("invalid center coordinates");
-  }
-
-  if (!Number.isFinite(zoom)) {
-    fail$1("invalid zoom value");
-  }
+  const sizeType =
+    (size && allPosInts(size.clientWidth, size.clientHeight)) ? "client" :
+    (size && allPosInts(size.width, size.height)) ? "raw" :
+    null;
+  if (!sizeType) fail$1("invalid size object in framebuffer");
+  const getViewport = (sizeType === "client")
+    ? () => ([size.clientWidth, size.clientHeight])
+    : () => ([size.width, size.height]);
 
   const validUnits = ["degrees", "radians", "xy"];
   if (!validUnits.includes(units)) fail$1("invalid units");
   const projection = getProjection(units);
 
   // Convert initial center position from degrees to the specified units
+  if (!checkCoords(center, 2)) fail$1("invalid center coordinates");
   const projCenter = getProjection("degrees").forward(center);
   if (!all0to1(...projCenter)) fail$1 ("invalid center coordinates");
   const invCenter = projection.inverse(projCenter);
 
+  if (!Number.isFinite(zoom)) fail$1("invalid zoom value");
+
+  const coords = initCoords({
+    getViewport, projection,
+    center: invCenter,
+    zoom, clampY,
+  });
+
   return {
     gl, framebuffer,
-    projection,
-    coords: initCoords({ size, center: invCenter, zoom, clampY, projection }),
+    projection, coords,
     style, mapboxToken,
     context: initGLpaint(context, framebuffer),
-    eventHandler: initEventHandler(),
   };
 }
 
@@ -890,6 +842,13 @@ function allPosInts(...vals) {
 
 function all0to1(...vals) {
   return vals.every(v => Number.isFinite(v) && v >= 0 && v <= 1);
+}
+
+function checkCoords(p, n) {
+  const isArray = Array.isArray(p) ||
+    (ArrayBuffer.isView(p) && !(p instanceof DataView));
+  return isArray && p.length >= n &&
+    p.slice(0, n).every(Number.isFinite);
 }
 
 function expandStyleURL(url, token) {
@@ -7738,11 +7697,10 @@ function initSources(style, context, coords) {
     return grid;
   }).filter(s => s !== undefined);
 
-  function loadTilesets(pixRatio = 1) {
-    const transform = coords.getTransform(pixRatio);
-    const viewport = coords.getViewport(pixRatio);
+  function loadTilesets() {
+    const viewport = coords.getViewport();
+    const transform = coords.getTransform();
     grids.forEach(grid => {
-      // Make sure data from this source is still being displayed
       if (!grid.layers.some(l => l.visible)) return;
       tilesets[grid.key] = grid.getTiles(viewport, transform);
     });
@@ -8084,7 +8042,6 @@ function init(userParams) {
     projection: params.projection,
     draw: () => null,
     select: () => null,
-    when: params.eventHandler.addListener,
   };
 
   // Extend with coordinate methods (SEE coords.js for API)
@@ -8120,8 +8077,8 @@ function setup(styleDoc, params, api) {
   const render = initRenderer(params.context, styleDoc);
 
   api.draw = function(pixRatio = 1) {
-    const loadStatus = sources.loadTilesets(pixRatio);
-    render(sources.tilesets, api.getZoom(pixRatio), pixRatio);
+    const loadStatus = sources.loadTilesets();
+    render(sources.tilesets, api.getZoom(), pixRatio);
     return loadStatus;
   };
 

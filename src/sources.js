@@ -20,11 +20,10 @@ export function initSources(style, context, coords) {
     return grid;
   }).filter(s => s !== undefined);
 
-  function loadTilesets(pixRatio = 1) {
-    const transform = coords.getTransform(pixRatio);
-    const viewport = coords.getViewport(pixRatio);
+  function loadTilesets() {
+    const viewport = coords.getViewport();
+    const transform = coords.getTransform();
     grids.forEach(grid => {
-      // Make sure data from this source is still being displayed
       if (!grid.layers.some(l => l.visible)) return;
       tilesets[grid.key] = grid.getTiles(viewport, transform);
     });

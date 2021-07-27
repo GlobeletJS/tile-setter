@@ -12,16 +12,16 @@ export function main() {
   tileMap.init({
     context,
     center: [-73.885, 40.745],
-    zoom: 9 + Math.log2(window.devicePixelRatio),
+    zoom: 9,
     style: "./klokantech-basic-style.json",
   }).promise.then(api => setup(api, canvas))
     .catch(console.log);
 }
 
 function setup(api, canvas) {
-  const viewport = api.getViewport(window.devicePixelRatio);
+  const viewport = api.getViewport();
 
-  const { k, x, y } = api.getTransform(window.devicePixelRatio);
+  const { k, x, y } = api.getTransform();
   let transform = d3.zoomIdentity
     .translate(x, y)
     .scale(k);
@@ -42,7 +42,7 @@ function setup(api, canvas) {
   function animate() {
     const pixRatio = window.devicePixelRatio;
     yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
-    api.setTransform(transform, pixRatio);
+    api.setTransform(transform);
     api.draw(pixRatio);
     requestAnimationFrame(animate);
   }

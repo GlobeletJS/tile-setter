@@ -14,7 +14,7 @@ export function main() {
 }
 
 function setup(api, canvas) {
-  const viewport = api.getViewport(window.devicePixelRatio);
+  const viewport = api.getViewport();
 
   const loadStatus = document.getElementById("loadStatus");
   const control = {

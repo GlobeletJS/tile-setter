@@ -1,6 +1,7 @@
-export function initCoords({ size, center, zoom, clampY, projection }) {
+export function initCoords({ getViewport, center, zoom, clampY, projection }) {
+  const { log2, min, max, round, floor } = Math;
   const minTileSize = 256;
-  const logTileSize = Math.log2(minTileSize);
+  const logTileSize = log2(minTileSize);
 
   const transform = {
     k: 1, // Size of the world map, in pixels
@@ -14,8 +15,8 @@ export function initCoords({ size, center, zoom, clampY, projection }) {
 
   return {
     getViewport,
-    getTransform,
-    getZoom,
+    getTransform: () => Object.assign({}, transform),
+    getZoom: () => max(0, log2(transform.k) - 9),
     getCamPos: () => camPos.slice(),
     getScale: () => scale.slice(),
 
@@ -25,50 +26,37 @@ export function initCoords({ size, center, zoom, clampY, projection }) {
     localToGlobal,
   };
 
-  function getViewport(pixRatio = 1) {
-    return [size.width / pixRatio, size.height / pixRatio];
-  }
-
-  function getTransform(pixRatio = 1) {
-    return Object.entries(transform)
-      .reduce((d, [k, v]) => (d[k] = v / pixRatio, d), {});
-  }
-
-  function getZoom(pixRatio = 1) {
-    return Math.max(0, Math.log2(transform.k / pixRatio) - 9);
-  }
-
-  function setTransform({ k, x, y }, pixRatio = 1) {
+  function setTransform({ k, x, y }) {
     // Input transforms map coordinates [x, y] into viewport coordinates
-    const [kRaw, xRaw, yRaw] = [k, x, y].map(c => c * pixRatio);
+    const [width, height] = getViewport();
 
-    // Round kRaw to ensure tile pixels align with screen pixels
-    const z = Math.log2(kRaw) - logTileSize;
-    const z0 = Math.floor(z);
-    const tileScale = Math.round(2 ** (z - z0) * minTileSize);
+    // Round k to ensure tile pixels align with screen pixels
+    const z = log2(k) - logTileSize;
+    const z0 = floor(z);
+    const tileScale = round(2 ** (z - z0) * minTileSize);
     const kNew = clampY
-      ? Math.max(2 ** z0 * tileScale, size.height)
+      ? max(2 ** z0 * tileScale, height)
       : 2 ** z0 * tileScale;
 
     // Adjust translation for the change in scale, and snap to pixel grid
-    const kScale = kNew / kRaw;
+    const kScale = kNew / k;
     // Keep the same map pixel at the center of the viewport
-    const sx = kScale * xRaw + (1 - kScale) * size.width / 2;
-    const sy = kScale * yRaw + (1 - kScale) * size.height / 2;
+    const sx = kScale * x + (1 - kScale) * width / 2;
+    const sy = kScale * y + (1 - kScale) * height / 2;
     // Limit Y so the map doesn't cross a pole
     const yLim = clampY
-      ? Math.min(Math.max(-kNew / 2 + size.height, sy), kNew / 2)
+      ? min(max(-kNew / 2 + height, sy), kNew / 2)
       : sy;
-    const [xNew, yNew] = [sx, yLim].map(Math.round);
+    const [xNew, yNew] = [sx, yLim].map(round);
 
     // Make sure camera is still pointing at the original location: shift from
     // the center [0.5, 0.5] by the change in the translation due to rounding
-    camPos[0] = 0.5 + (xNew - sx) / size.width;
-    camPos[1] = 0.5 + (yNew - sy) / size.height;
+    camPos[0] = 0.5 + (xNew - sx) / width;
+    camPos[1] = 0.5 + (yNew - sy) / height;
 
     // Store the scale of the current map relative to the entire world
-    scale[0] = kNew / size.width;
-    scale[1] = kNew / size.height;
+    scale[0] = kNew / width;
+    scale[1] = kNew / height;
 
     // Return a flag indicating whether the transform changed
     const { k: kOld, x: xOld, y: yOld } = transform;
@@ -77,12 +65,13 @@ export function initCoords({ size, center, zoom, clampY, projection }) {
     return true;
   }
 
-  function setCenterZoom(c, z) {
-    const k = 512 * 2 ** z;
+  function setCenterZoom(center, zoom) {
+    const [width, height] = getViewport();
 
-    const [xr, yr] = projection.forward(c);
-    const x = (0.5 - xr) * k + size.width / 2;
-    const y = (0.5 - yr) * k + size.height / 2;
+    const k = 512 * 2 ** zoom;
+    const [xr, yr] = projection.forward(center);
+    const x = (0.5 - xr) * k + width / 2;
+    const y = (0.5 - yr) * k + height / 2;
 
     return setTransform({ k, x, y });
   }

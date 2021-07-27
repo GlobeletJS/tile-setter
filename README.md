@@ -24,13 +24,11 @@ const map = tileSetter.init(params);
 
 ## Parameters
 The supplied parameters object has the following properties:
-- `gl` (REQUIRED): An extended WebGL rendering context, as created by the 
-  [yawgl][] method `getExtendedContext`
-- `framebuffer`: A [WebGLFramebuffer][] object to which the map will
-  be rendered. If not supplied, the map will be rendered to `gl.canvas`
-- `size`: An object specifying the `{ width, height }`
-  of the framebuffer to which the map will be rendered. If not supplied, the
-  dimensions will be taken from `gl.canvas`
+- `context` (REQUIRED): A WebGL context wrapper, as created by the
+  [yawgl][] method `initContext`
+- `framebuffer`: A framebuffer object, as created by `context.initFramebuffer`,
+  to which the map will be rendered. If not supplied, the map will be rendered 
+  to `context.gl.canvas`
 - `center`: The initial center of the map, given as [longitude, latitude]
   in degrees. Default: [0.0, 0.0]
 - `zoom`: The initial zoom of the map. Default: 4
@@ -47,7 +45,6 @@ The supplied parameters object has the following properties:
   - "degrees" (DEFAULT): Assumes input [longitude, latitude] in degrees
 
 [yawgl]: https://github.com/GlobeletJS/yawgl
-[WebGLFramebuffer]: https://developer.mozilla.org/en-US/docs/Web/API/WebGLFramebuffer
 
 ## API
 The returned map object exposes the following properties and methods:
@@ -60,7 +57,6 @@ The returned map object exposes the following properties and methods:
     global Web Mercator [X, Y] to input units
   - `projection.scale(point)`: Return value scales a (differential) distance
     in the input coordinates to a distance in global Web Mercator coordinates
-
 - `setTransform(transform)`: Sets the map transform, where `transform` has
   properties `{ k, y, x }`, defined as in the [d3-zoom transform][]. Actual 
   transform for rendering will be rounded to ensure tile pixels align with 
@@ -71,8 +67,7 @@ The returned map object exposes the following properties and methods:
   - `center`: An array of `[x, y]` or `[longitude, latitude]` coordinates,
     in the units specified on initialization
   - `zoom`: The desired zoom level
-
-- `getViewport(pixRatio)`: Returns the current viewport dimensions in CSS
+- `getViewport()`: Returns the current viewport dimensions in CSS
   pixels, as a 2-element array
 - `getTransform()`: Returns a copy of the current transform
 - `getZoom()`: Returns the transform scale converted to a zoom level.
@@ -84,12 +79,10 @@ The returned map object exposes the following properties and methods:
   viewport dimensions, as an array of two floats
 - `localToGlobal([x, y])`: converts pixel coordinates [x, y] within 
   the current map to global XY
-
 - `promise`: A Promise that resolves to an updated API, after the MapLibre
   style document (supplied on init) is fully loaded and parsed
 - `draw()`: Returns `null` until `map.promise` resolves
 - `select()`: Returns `null` until `map.promise` resolves
-- `when`: adds an event listener. TODO: document or remove?
 
 All the above properties and methods are available immediately upon
 initialization (*synchronously*). After `map.promise` resolves, the following

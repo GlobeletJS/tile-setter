@@ -12,16 +12,16 @@ export function main() {
   tileMap.init({
     context,
     center: [0, 30],
-    zoom: 2 + Math.log2(window.devicePixelRatio),
+    zoom: 2,
     style: "klokantech-basic-style-geojson-sampler.json",
   }).promise.then(api => setup(api, canvas))
     .catch(console.log);
 }
 
 function setup(api, canvas) {
-  const viewport = api.getViewport(window.devicePixelRatio);
+  const viewport = api.getViewport();
 
-  const { k, x, y } = api.getTransform(window.devicePixelRatio);
+  const { k, x, y } = api.getTransform();
   let transform = d3.zoomIdentity
     .translate(x, y)
     .scale(k);
@@ -44,7 +44,7 @@ function setup(api, canvas) {
   function animate() {
     const pixRatio = window.devicePixelRatio;
     yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
-    api.setTransform(transform, pixRatio);
+    api.setTransform(transform);
     const percent = api.draw(pixRatio) * 100;
     loadStatus.innerHTML = (percent < 100)
       ? "Loading: " + percent.toFixed(0) + "%"

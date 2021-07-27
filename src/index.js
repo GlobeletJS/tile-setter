@@ -13,7 +13,6 @@ export function init(userParams) {
     projection: params.projection,
     draw: () => null,
     select: () => null,
-    when: params.eventHandler.addListener,
   };
 
   // Extend with coordinate methods (SEE coords.js for API)
@@ -49,8 +48,8 @@ function setup(styleDoc, params, api) {
   const render = initRenderer(params.context, styleDoc);
 
   api.draw = function(pixRatio = 1) {
-    const loadStatus = sources.loadTilesets(pixRatio);
-    render(sources.tilesets, api.getZoom(pixRatio), pixRatio);
+    const loadStatus = sources.loadTilesets();
+    render(sources.tilesets, api.getZoom(), pixRatio);
     return loadStatus;
   };
 

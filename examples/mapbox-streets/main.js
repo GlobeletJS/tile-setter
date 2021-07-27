@@ -12,7 +12,7 @@ export function main() {
   tileMap.init({
     context,
     center: [-73.885, 40.745],
-    zoom: 9 + Math.log2(window.devicePixelRatio),
+    zoom: 9,
     // style: "mapbox://styles/mapbox/streets-v8",
     style: "./streets-v8-noInteractive.json",
     // eslint-disable-next-line max-len
@@ -22,9 +22,9 @@ export function main() {
 }
 
 function setup(api, canvas) {
-  const viewport = api.getViewport(window.devicePixelRatio);
+  const viewport = api.getViewport();
 
-  const { k, x, y } = api.getTransform(window.devicePixelRatio);
+  const { k, x, y } = api.getTransform();
   let transform = d3.zoomIdentity
     .translate(x, y)
     .scale(k);
@@ -47,7 +47,7 @@ function setup(api, canvas) {
   function animate() {
     const pixRatio = window.devicePixelRatio;
     yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
-    api.setTransform(transform, pixRatio);
+    api.setTransform(transform);
     const percent = api.draw(pixRatio) * 100;
     loadStatus.innerHTML = (percent < 100)
       ? "Loading: " + percent.toFixed(0) + "%"

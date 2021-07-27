@@ -1,13 +1,10 @@
 import { getProjection } from "./projection.js";
 import { initCoords } from "./coords.js";
 import { initGLpaint } from "tile-gl";
-import { initEventHandler } from "./events.js";
 
 export function setParams(userParams) {
   const gl = userParams.context.gl;
-  if (!(gl instanceof WebGLRenderingContext)) {
-    fail("no valid WebGL context");
-  }
+  if (!(gl instanceof WebGLRenderingContext)) fail("no valid WebGL context");
 
   const {
     context,
@@ -25,34 +22,38 @@ export function setParams(userParams) {
     fail("no valid framebuffer");
   }
 
-  if (!size || !allPosInts(size.width, size.height)) {
-    fail("invalid size object");
-  }
-
-  if (!Array.isArray(center) || center.length < 2) {
-    fail("invalid center coordinates");
-  }
-
-  if (!Number.isFinite(zoom)) {
-    fail("invalid zoom value");
-  }
+  const sizeType =
+    (size && allPosInts(size.clientWidth, size.clientHeight)) ? "client" :
+    (size && allPosInts(size.width, size.height)) ? "raw" :
+    null;
+  if (!sizeType) fail("invalid size object in framebuffer");
+  const getViewport = (sizeType === "client")
+    ? () => ([size.clientWidth, size.clientHeight])
+    : () => ([size.width, size.height]);
 
   const validUnits = ["degrees", "radians", "xy"];
   if (!validUnits.includes(units)) fail("invalid units");
   const projection = getProjection(units);
 
   // Convert initial center position from degrees to the specified units
+  if (!checkCoords(center, 2)) fail("invalid center coordinates");
   const projCenter = getProjection("degrees").forward(center);
   if (!all0to1(...projCenter)) fail ("invalid center coordinates");
   const invCenter = projection.inverse(projCenter);
 
+  if (!Number.isFinite(zoom)) fail("invalid zoom value");
+
+  const coords = initCoords({
+    getViewport, projection,
+    center: invCenter,
+    zoom, clampY,
+  });
+
   return {
     gl, framebuffer,
-    projection,
-    coords: initCoords({ size, center: invCenter, zoom, clampY, projection }),
+    projection, coords,
     style, mapboxToken,
     context: initGLpaint(context, framebuffer),
-    eventHandler: initEventHandler(),
   };
 }
 
@@ -66,4 +67,11 @@ function allPosInts(...vals) {
 
 function all0to1(...vals) {
   return vals.every(v => Number.isFinite(v) && v >= 0 && v <= 1);
+}
+
+function checkCoords(p, n) {
+  const isArray = Array.isArray(p) ||
+    (ArrayBuffer.isView(p) && !(p instanceof DataView));
+  return isArray && p.length >= n &&
+    p.slice(0, n).every(Number.isFinite);
 }
