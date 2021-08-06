@@ -1,4 +1,4 @@
-import * as yawgl from 'yawgl';
+import * as yawgl from "yawgl";
 import * as tileMap from "../../";
 
 export function main() {
@@ -14,8 +14,6 @@ export function main() {
 }
 
 function setup(api, canvas) {
-  const viewport = api.getViewport();
-
   const loadStatus = document.getElementById("loadStatus");
   const control = {
     longitude: document.getElementById("longitude"),
@@ -26,7 +24,7 @@ function setup(api, canvas) {
   const actualZoom = document.getElementById("actualZoom");
 
   requestAnimationFrame(animate);
-  function animate(time) {
+  function animate() {
     const pixRatio = window.devicePixelRatio;
     yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
 

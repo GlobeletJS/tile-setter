@@ -38,6 +38,5 @@ export function initSources(style, context, coords) {
     getLayerTiles: (layer) => tilesets[layerSources[layer]],
     loadTilesets,
     queuedTasks: caches.queuedTasks,
-    reporter: caches.reporter,
   };
 }

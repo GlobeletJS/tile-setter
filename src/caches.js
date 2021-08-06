@@ -4,11 +4,10 @@ import { initCache } from "tile-rack";
 
 export function initCaches({ context, glyphs }) {
   const queue = chunkedQueue.init();
-  const reporter = document.createElement("div");
 
   function addSource({ source, layers }) {
     const loader = initLoader(source, layers);
-    const factory = buildFactory({ loader, reporter });
+    const factory = buildFactory(loader);
     return initCache({ create: factory, size: 1.0 });
   }
 
@@ -30,11 +29,10 @@ export function initCaches({ context, glyphs }) {
     addSource,
     sortTasks: queue.sortTasks,
     queuedTasks: queue.countTasks,
-    reporter,
   };
 }
 
-function buildFactory({ loader, reporter }) {
+function buildFactory(loader) {
   return function(z, x, y) {
     const id = [z, x, y].join("/");
     const tile = { z, x, y, id, priority: 0 };
@@ -43,7 +41,6 @@ function buildFactory({ loader, reporter }) {
       if (err) return; // console.log(err);
       tile.data = data;
       tile.ready = true;
-      reporter.dispatchEvent(new Event("tileLoaded"));
     }
 
     const getPriority = () => tile.priority;

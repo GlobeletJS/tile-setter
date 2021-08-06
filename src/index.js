@@ -27,9 +27,6 @@ export function init(userParams) {
 
 function setup(styleDoc, params, api) {
   const sources = initSources(styleDoc, params.context, api);
-  sources.reporter.addEventListener("tileLoaded",
-    () => params.eventHandler.emitEvent("tileLoaded"),
-    false);
 
   // Set up interactive toggling of layer visibility
   styleDoc.layers.forEach(l => {
