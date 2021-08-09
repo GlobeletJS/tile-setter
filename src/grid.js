@@ -41,7 +41,7 @@ export function initTileGrid({ key, source, tileCache }) {
       if (!box) return;
 
       tilesDone += box.sw ** 2;
-      return Object.assign(box, { x, y, z });
+      return Object.assign(box, { x, xw, y, yw, z });
     }).filter(t => t !== undefined);
 
     grid.loaded = tilesDone / tiles.length;

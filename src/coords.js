@@ -76,11 +76,14 @@ export function initCoords({ getViewport, center, zoom, clampY, projection }) {
     return setTransform({ k, x, y });
   }
 
-  function localToGlobal([x, y]) {
+  function localToGlobal([xl, yl]) {
     // Convert local map pixels to global XY
     const { x: tx, y: ty, k } = transform;
     // tx, ty is the shift of the map center (in pixels)
     //   relative to the viewport origin (top left corner)
-    return [(x - tx) / k + 0.5, (y - ty) / k + 0.5];
+    const xg = (xl - tx) / k + 0.5;
+    const yg = (yl - ty) / k + 0.5;
+    // Global XY are in the range [0.0, 1.0]. Wrap values outside
+    return [xg - floor(xg), yg - floor(yg)];
   }
 }

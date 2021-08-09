@@ -71,6 +71,10 @@ function setup(api, canvas) {
       layer: "twdb-groundwater-v2",
       point, // : api.localToGlobal(mouse),
       radius: 3,
+    }) || api.select({
+      layer: "mountains",
+      point,
+      radius: 6,
     });
     infoBox.innerHTML = "<pre>" + JSON.stringify(feature, null, 2) + "</pre>";
 

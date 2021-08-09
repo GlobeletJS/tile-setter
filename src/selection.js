@@ -13,7 +13,7 @@ export function initSelector(sources, projection) {
     const nTiles = 2 ** tileset[0].z;
     const [ix, iy] = projection.forward(point)
       .map(c => Math.floor(c * nTiles));
-    const tileBox = tileset.find(({ x, y }) => x == ix && y == iy);
+    const tileBox = tileset.find(({ xw, yw }) => xw == ix && yw == iy);
     if (!tileBox) return;
     const dataLayer = tileBox.tile.data.layers[layer];
     if (!dataLayer) return;
