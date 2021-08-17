@@ -18,7 +18,7 @@ export function initRenderer(context, coords, style) {
     const localCamY = coords.getCamPos()[1] * coords.getViewport()[1];
     const globalCamY = coords.localToGlobal([0.0, localCamY])[1];
     const cameraScale = cosh(2 * PI * (0.5 - globalCamY)) * dzScale;
-    
+
     painters.forEach(painter => {
       if (zoom < painter.minzoom || painter.maxzoom < zoom) return;
       if (!painter.visible()) return;
