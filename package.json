@@ -1,6 +1,6 @@
 {
   "name": "tile-setter",
-  "version": "0.0.10",
+  "version": "0.1.0",
   "description": "Tiled vector map powered by a lightweight WebGL renderer",
   "main": "dist/tile-setter.js",
   "directories": {},
