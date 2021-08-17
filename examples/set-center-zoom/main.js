@@ -32,7 +32,7 @@ function setup(api, canvas) {
       .map(v => v.valueAsNumber);
     api.setCenterZoom([longitude, latitude], zoom);
 
-    const percent = api.draw(pixRatio) * 100;
+    const percent = api.draw({ pixRatio }) * 100;
     loadStatus.innerHTML = (percent < 100)
       ? "Loading: " + percent.toFixed(0) + "%"
       : "Complete! " + percent.toFixed(0) + "%";

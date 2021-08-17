@@ -48,7 +48,7 @@ function setup(api, canvas) {
     const pixRatio = window.devicePixelRatio;
     yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
     api.setTransform(transform);
-    const percent = api.draw(pixRatio) * 100;
+    const percent = api.draw({ pixRatio }) * 100;
     loadStatus.innerHTML = (percent < 100)
       ? "Loading: " + percent.toFixed(0) + "%"
       : "Complete! " + percent.toFixed(0) + "%";

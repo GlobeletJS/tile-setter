@@ -43,7 +43,7 @@ function setup(api, canvas) {
     const pixRatio = window.devicePixelRatio;
     yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
     api.setTransform(transform);
-    api.draw(pixRatio);
+    api.draw({ pixRatio });
     requestAnimationFrame(animate);
   }
 }

@@ -26,7 +26,8 @@ export function init(userParams) {
 }
 
 function setup(styleDoc, params, api) {
-  const sources = initSources(styleDoc, params.context, api);
+  const { context, coords, projection } = params;
+  const sources = initSources(styleDoc, context, api);
 
   // Set up interactive toggling of layer visibility
   styleDoc.layers.forEach(l => {
@@ -42,15 +43,15 @@ function setup(styleDoc, params, api) {
   api.hideLayer = (id) => setLayerVisibility(id, false);
   api.showLayer = (id) => setLayerVisibility(id, true);
 
-  const render = initRenderer(params.context, styleDoc);
+  const render = initRenderer(context, coords, styleDoc);
 
-  api.draw = function(pixRatio = 1) {
+  api.draw = function({ pixRatio = 1, dzScale = 1 } = {}) {
     const loadStatus = sources.loadTilesets();
-    render(sources.tilesets, api.getZoom(), pixRatio);
+    render(sources.tilesets, pixRatio, dzScale);
     return loadStatus;
   };
 
-  api.select = initSelector(sources, params.projection);
+  api.select = initSelector(sources, projection);
 
   return api;
 }

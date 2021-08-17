@@ -17,6 +17,7 @@ export function main() {
     // eslint-disable-next-line max-len
     mapboxToken: "pk.eyJ1IjoiamhlbWJkIiwiYSI6ImNqcHpueHpyZjBlMjAzeG9kNG9oNzI2NTYifQ.K7fqhk2Z2YZ8NIV94M-5nA",
     units: "xy",
+    projScale: true,
   }).promise.then(api => setup(api, canvas))
     .catch(console.log);
 }
@@ -59,7 +60,7 @@ function setup(api, canvas) {
     const pixRatio = window.devicePixelRatio;
     yawgl.resizeCanvasToDisplaySize(canvas, pixRatio);
     api.setTransform(transform);
-    const percent = api.draw(pixRatio) * 100;
+    const percent = api.draw({ pixRatio }) * 100;
     loadStatus.innerHTML = (percent < 100)
       ? "Loading: " + percent.toFixed(0) + "%"
       : "Complete! " + percent.toFixed(0) + "%";

@@ -24,25 +24,28 @@ const map = tileSetter.init(params);
 
 ## Parameters
 The supplied parameters object has the following properties:
-- `context` (REQUIRED): A WebGL context wrapper, as created by the
+- `.context` (REQUIRED): A WebGL context wrapper, as created by the
   [yawgl][] method `initContext`
-- `framebuffer`: A framebuffer object, as created by `context.initFramebuffer`,
+- `.framebuffer`: A framebuffer object, as created by `context.initFramebuffer`,
   to which the map will be rendered. If not supplied, the map will be rendered 
   to `context.gl.canvas`
-- `center`: The initial center of the map, given as [longitude, latitude]
+- `.center`: The initial center of the map, given as [longitude, latitude]
   in degrees. Default: [0.0, 0.0]
-- `zoom`: The initial zoom of the map. Default: 4
-- `style` (REQUIRED): A link to a MapLibre style document
-- `mapboxToken`: Your API token for Mapbox services (if needed)
-- `clampY`: If true (default), the scale and Y-coordinate of the map will be
+- `.zoom`: The initial zoom of the map. Default: 4
+- `.style` (REQUIRED): A link to a MapLibre style document
+- `.mapboxToken`: Your API token for Mapbox services (if needed)
+- `.clampY`: If true (default), the scale and Y-coordinate of the map will be
   adjusted to ensure the viewport is not crossing the North or South limits of
   the world map
-- `units`: The units that will be used for subsequent calls to 
+- `.units`: The units that will be used for subsequent calls to 
   `map.setCenterZoom` and `map.select`. Possible values:
   - "xy": Assumes an input [x, y] in global Web Mercator coordinates,
     with [0, 0] at the top left corner of the map
   - "radians": Assumes an input [longitude, latitude] in radians
   - "degrees" (DEFAULT): Assumes input [longitude, latitude] in degrees
+- `.projScale`: A Boolean flag indicating whether to scale style dimensions
+  by the ratio of the projection scale at each feature, vs. the projection scale
+  at the camera position
 
 [yawgl]: https://github.com/GlobeletJS/yawgl
 
@@ -87,19 +90,26 @@ The returned map object exposes the following properties and methods:
 All the above properties and methods are available immediately upon
 initialization (*synchronously*). After `map.promise` resolves, the following
 methods are updated or added:
-- `draw(pixRatio)`: Draws the map for the supplied transform. Parameter 
-  `pixRatio` is the number of renderbuffer pixels per CSS pixel, e.g., 
-   as returned by [window.devicePixelRatio][]. Returns a fractional number
-   (from 0.0 to 1.0) indicating the loading status, expressed as a
-   fraction of the tiles that are needed to render the current view
+- `draw(params)`: Draws the map for the supplied transform. Returns a 
+  fractional number (from 0.0 to 1.0) indicating the loading status, expressed
+  as a fraction of the tiles that are needed to render the current view.
+  The `params` object has the following properties:
+  - `.pixRatio`: the number of renderbuffer pixels per CSS pixel, e.g., as
+    as returned by [window.devicePixelRatio][]. Default: 1.0
+  - `.dzScale`: An additional scalar to be multiplied with the camera
+    projection scale, if `projScale === true` on initialization. This can
+    be used to account for the internal zoom being different from the
+    requested&mdash;for example, if after `.setCenterZoom(center, zoom)`,
+    we find that `api.getZoom() !== zoom`, due to transform rounding or
+    `clampY === true`
 - `select(params)`: Finds map features near a given location. The `params`
   object has the following properties:
-   - `layer` (String): The name of the layer in the MapLibre style document 
-     containing the features to be queried
-   - `point` (Array): The location to be queried, specified as a 2-element 
-     Array of coordinates, in the units specified on initialization
-   - `radius` (Number): The maximum pixel distance between `point` and the
-     selected feature. Default: 5
+  - `layer` (String): The name of the layer in the MapLibre style document 
+    containing the features to be queried
+  - `point` (Array): The location to be queried, specified as a 2-element 
+    Array of coordinates, in the units specified on initialization
+  - `radius` (Number): The maximum pixel distance between `point` and the
+    selected feature. Default: 5
 - `hideLayer(layer)`: Turns off rendering for the given layer
 - `showLayer(layer)`: Turns on rendering for the given layer
 

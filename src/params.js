@@ -15,6 +15,7 @@ export function setParams(userParams) {
     mapboxToken,
     clampY = true,
     units = "degrees",
+    projScale = false,
   } = userParams;
 
   const { buffer, size } = framebuffer;
@@ -53,7 +54,7 @@ export function setParams(userParams) {
     gl, framebuffer,
     projection, coords,
     style, mapboxToken,
-    context: initGLpaint(context, framebuffer),
+    context: initGLpaint({ context, framebuffer, projScale }),
   };
 }
 
