@@ -151,8 +151,6 @@ function initCoords({ getViewport, center, zoom, clampY, projection }) {
 
 var preamble = `precision highp float;
 
-const float TWOPI = 6.28318530718;
-
 attribute vec3 tileCoords;
 
 uniform vec4 mapCoords;   // x, y, z, extent of tileset[0]
@@ -188,7 +186,9 @@ var simpleScale = `float styleScale(vec2 tilePos) {
 }
 `;
 
-var mercatorScale = `float mercatorScale(float yWeb) {
+var mercatorScale = `const float TWOPI = 6.28318530718;
+
+float mercatorScale(float yWeb) {
   // Convert Web Mercator Y to standard Mercator Y
   float yMerc = TWOPI * (0.5 - yWeb);
   return 0.5 * (exp(yMerc) + exp(-yMerc)); // == cosh(y)
@@ -200,21 +200,44 @@ float styleScale(vec2 tilePos) {
 }
 `;
 
-function initSetters(pairs, uniformSetters) {
-  return pairs
-    .filter(([get]) => get.type !== "property")
-    .map(([get, key]) => {
-      const set = uniformSetters[key];
-      return (z, f) => set(get(z, f));
-    });
+function setParams$2(userParams) {
+  const { context, framebuffer, projScale } = userParams;
+
+  const scaleCode = (projScale) ? mercatorScale : simpleScale;
+
+  return {
+    context,
+    framebuffer,
+    preamble: preamble + scaleCode,
+  };
 }
 
-function initVectorTilePainter(context, layerId, setAtlas) {
-  return function(tileBox, translate, scale, framebufferHeight) {
+function camelCase(hyphenated) {
+  return hyphenated.replace(/-([a-z])/gi, (h, c) => c.toUpperCase());
+}
+
+function initTilePainter(context, style, styleKeys, setters) {
+  const { id, paint } = style;
+  const setAtlas = setters.sdf;
+
+  const zoomFuncs = styleKeys
+    .filter(styleKey => paint[styleKey].type !== "property")
+    .map(styleKey => {
+      const get = paint[styleKey];
+      const shaderVar = camelCase(styleKey);
+      const set = setters[shaderVar];
+      return (z, f) => set(get(z, f));
+    });
+
+  function setStyles(zoom) {
+    zoomFuncs.forEach(f => f(zoom));
+  }
+
+  function paintTile(tileBox, translate, scale, framebufferHeight) {
     const { x, y, tile } = tileBox;
     const { layers, atlas } = tile.data;
 
-    const data = layers[layerId];
+    const data = layers[id];
     if (!data) return;
 
     const [x0, y0] = [x, y].map((c, i) => (c + translate[i]) * scale);
@@ -224,11 +247,12 @@ function initVectorTilePainter(context, layerId, setAtlas) {
     if (setAtlas && atlas) setAtlas(atlas);
 
     context.draw(data.buffers);
-  };
+  }
+
+  return { setStyles, paintTile };
 }
 
-function initGrid(context, framebufferSize, program) {
-  const { use, uniformSetters } = program;
+function initGrid(framebufferSize, use, uniformSetters) {
   const { screenScale, mapCoords, mapShift } = uniformSetters;
 
   function setGrid(tileset, pixRatio = 1) {
@@ -258,10 +282,7 @@ function initGrid(context, framebufferSize, program) {
     return { translate, scale: pixScale, subsets };
   }
 
-  function initTilesetPainter(id, styleMap, setAtlas) {
-    const zoomFuncs = initSetters(styleMap, uniformSetters);
-    const paintTile = initVectorTilePainter(context, id, setAtlas);
-
+  function initTilesetPainter(painter) {
     return function({ tileset, zoom, pixRatio = 1, cameraScale = 1.0 }) {
       if (!tileset || !tileset.length) return;
 
@@ -270,11 +291,11 @@ function initGrid(context, framebufferSize, program) {
       screenScale([2 / width, -2 / height, pixRatio, cameraScale]);
       const { translate, scale, subsets } = setGrid(tileset, pixRatio);
 
-      zoomFuncs.forEach(f => f(zoom));
+      painter.setStyles(zoom);
 
       subsets.forEach(({ setter, tiles }) => {
         setter();
-        tiles.forEach(box => paintTile(box, translate, scale, height));
+        tiles.forEach(box => painter.paintTile(box, translate, scale, height));
       });
     };
   }
@@ -283,9 +304,7 @@ function initGrid(context, framebufferSize, program) {
 }
 
 function initBackground(context) {
-  function initPainter(style) {
-    const { paint } = style;
-
+  function initPainter({ paint }) {
     return function({ zoom }) {
       const opacity = paint["background-opacity"](zoom);
       const color = paint["background-color"](zoom);
@@ -298,24 +317,24 @@ function initBackground(context) {
 
 var vert$3 = `attribute vec2 quadPos; // Vertices of the quad instance
 attribute vec2 circlePos;
-attribute float radius;
-attribute vec4 color;
-attribute float opacity;
+attribute float circleRadius;
+attribute vec4 circleColor;
+attribute float circleOpacity;
 
 varying vec2 delta;
 varying vec4 strokeStyle;
-varying float circleRadius;
+varying float radius;
 
 void main() {
   vec2 mapPos = tileToMap(circlePos);
 
   // Shift to the appropriate corner of the current instance quad
-  delta = 2.0 * quadPos * (radius + 1.0);
+  delta = quadPos * (circleRadius + 1.0);
   vec2 dPos = delta * styleScale(circlePos);
 
-  strokeStyle = color * opacity;
+  strokeStyle = circleColor * circleOpacity;
   // TODO: normalize delta? Then can drop one varying
-  circleRadius = radius;
+  radius = circleRadius;
 
   gl_Position = mapToClip(mapPos + dPos, 0.0);
 }
@@ -325,59 +344,42 @@ var frag$3 = `precision mediump float;
 
 varying vec2 delta;
 varying vec4 strokeStyle;
-varying float circleRadius;
+varying float radius;
 
 void main() {
   float r = length(delta);
   float dr = fwidth(r);
 
-  float taper = 1.0 - smoothstep(circleRadius - dr, circleRadius + dr, r);
+  float taper = 1.0 - smoothstep(radius - dr, radius + dr, r);
   gl_FragColor = strokeStyle * taper;
 }
 `;
 
 function initCircle(context) {
-  const { initPaintProgram, initQuad, initAttributes } = context;
-
-  const { constructVao, initTilesetPainter } = initPaintProgram(vert$3, frag$3);
-
-  const quadPos = initQuad({ x0: -0.5, y0: -0.5, x1: 0.5, y1: 0.5 });
-
   const attrInfo = {
     circlePos: { numComponents: 2 },
     tileCoords: { numComponents: 3 },
-    radius: { numComponents: 1 },
-    color: { numComponents: 4 },
-    opacity: { numComponents: 1 },
+    circleRadius: { numComponents: 1 },
+    circleColor: { numComponents: 4 },
+    circleOpacity: { numComponents: 1 },
   };
+  const quadPos = context.initQuad({ x0: -1.0, y0: -1.0, x1: 1.0, y1: 1.0 });
 
-  function load(buffers) {
-    const attributes = initAttributes(attrInfo, buffers, { quadPos });
-    const vao = constructVao({ attributes });
-    return { vao, instanceCount: buffers.circlePos.length / 2 };
-  }
+  const styleKeys = ["circle-radius", "circle-color", "circle-opacity"];
 
-  function initPainter(style) {
-    const { id, paint } = style;
-
-    const zoomFuncs = [
-      [paint["circle-radius"],  "radius"],
-      [paint["circle-color"],   "color"],
-      [paint["circle-opacity"], "opacity"],
-    ];
-
-    return initTilesetPainter(id, zoomFuncs);
-  }
-
-  return { load, initPainter };
+  return {
+    vert: vert$3, frag: frag$3, attrInfo, styleKeys,
+    getSpecialAttrs: () => ({ quadPos }),
+    countInstances: (buffers) => buffers.circlePos.length / 2,
+  };
 }
 
 var vert$2 = `attribute vec2 quadPos;
 attribute vec3 pointA, pointB, pointC, pointD;
-attribute vec4 color;
-attribute float opacity;
+attribute vec4 lineColor;
+attribute float lineOpacity;
 
-uniform float lineWidth, miterLimit;
+uniform float lineWidth, lineMiterLimit;
 
 varying float yCoord;
 varying vec2 miterCoord1, miterCoord2;
@@ -403,9 +405,9 @@ mat3 miterTransform(vec2 xHat, vec2 yHat, vec2 v, float pixWidth) {
   float sin2 = 1.0 - x_m0 * x_m0; // Could be zero!
   float miterLength = (sin2 > 0.0001)
     ? inversesqrt(sin2)
-    : miterLimit + 1.0;
+    : lineMiterLimit + 1.0;
   float bevelLength = abs(dot(yHat, m0));
-  float tx = (miterLength > miterLimit)
+  float tx = (miterLength > lineMiterLimit)
     ? 0.5 * pixWidth * bevelLength
     : 0.5 * pixWidth * miterLength;
 
@@ -431,7 +433,7 @@ void main() {
   mat3 m2 = miterTransform(-xBasis, yBasis, mapD - mapC, pixWidth);
 
   // Find the position of the current instance vertex, in 3 coordinate systems
-  vec2 extend = miterLimit * xBasis * pixWidth * (quadPos.x - 0.5);
+  vec2 extend = lineMiterLimit * xBasis * pixWidth * (quadPos.x - 0.5);
   // Add one pixel on either side of the line for the anti-alias taper
   float y = (pixWidth + 2.0) * quadPos.y;
   vec2 point = mapB + xAxis * quadPos.x + yBasis * y + extend;
@@ -444,7 +446,7 @@ void main() {
   // TODO: should this premultiplication be done in tile-stencil?
   //vec4 premult = vec4(color.rgb * color.a, color.a);
   //strokeStyle = premult * opacity;
-  strokeStyle = color * opacity;
+  strokeStyle = lineColor * lineOpacity;
 
   gl_Position = mapToClip(point, pointB.z + pointC.z);
 }
@@ -482,88 +484,69 @@ void main() {
 }
 `;
 
-function initLineLoader(context, constructVao) {
-  const { initQuad, createBuffer, initAttribute, initAttributes } = context;
-
-  const quadPos = initQuad({ x0: 0.0, y0: -0.5, x1: 1.0, y1: 0.5 });
+function initLine(context) {
+  const { initQuad, createBuffer, initAttribute } = context;
 
   const attrInfo = {
     tileCoords: { numComponents: 3 },
-    color: { numComponents: 4 },
-    opacity: { numComponents: 1 },
+    lineColor: { numComponents: 4 },
+    lineOpacity: { numComponents: 1 },
   };
-
+  const quadPos = initQuad({ x0: 0.0, y0: -0.5, x1: 1.0, y1: 0.5 });
   const numComponents = 3;
   const stride = Float32Array.BYTES_PER_ELEMENT * numComponents;
 
-  return function(buffers) {
-    const { lines } = buffers;
-
+  function getSpecialAttrs(buffers) {
     // Create buffer containing the vertex positions
-    const buffer = createBuffer(lines);
+    const buffer = createBuffer(buffers.lines);
 
-    // Create interleaved attributes pointing to different offsets in buffer
-    const geometryAttributes = {
+    // Construct interleaved attributes pointing to different offsets in buffer
+    function setupPoint(shift) {
+      const offset = shift * stride;
+      return initAttribute({ buffer, numComponents, stride, offset });
+    }
+
+    return {
       quadPos,
       pointA: setupPoint(0),
       pointB: setupPoint(1),
       pointC: setupPoint(2),
       pointD: setupPoint(3),
     };
+  }
 
-    function setupPoint(shift) {
-      const offset = shift * stride;
-      return initAttribute({ buffer, numComponents, stride, offset });
-    }
+  const styleKeys = [
+    // NOTE: line-miter-limit is a layout property in the style spec
+    // We copied the function to a paint property in ../main.js
+    "line-miter-limit",
+    // Other layout properties not implemented yet:
+    // "line-cap", "line-join",
 
-    const attributes = initAttributes(attrInfo, buffers, geometryAttributes);
-    const vao = constructVao({ attributes });
+    // Paint properties:
+    "line-color", "line-opacity",
+    "line-width", // "line-gap-width",
+    // "line-translate", "line-translate-anchor",
+    // "line-offset", "line-blur", "line-gradient", "line-pattern"
+  ];
 
-    return { vao, instanceCount: lines.length / numComponents - 3 };
+  return {
+    vert: vert$2, frag: frag$2, attrInfo, styleKeys, getSpecialAttrs,
+    countInstances: (buffers) => buffers.lines.length / numComponents - 3,
   };
 }
 
-function initLine(context) {
-  const program = context.initPaintProgram(vert$2, frag$2);
-  const { constructVao, initTilesetPainter } = program;
-
-  const load = initLineLoader(context, constructVao);
-
-  function initPainter(style) {
-    const { id, layout, paint } = style;
-
-    const zoomFuncs = [
-      // TODO: move these to serialization step??
-      // [layout["line-cap"],      "lineCap"],
-      // [layout["line-join"],     "lineJoin"],
-      [layout["line-miter-limit"], "miterLimit"],
-
-      [paint["line-width"],     "lineWidth"],
-      [paint["line-color"],     "color"],
-      [paint["line-opacity"],   "opacity"],
-      // line-gap-width,
-      // line-translate, line-translate-anchor,
-      // line-offset, line-blur, line-gradient, line-pattern
-    ];
-
-    return initTilesetPainter(id, zoomFuncs);
-  }
-
-  return { load, initPainter };
-}
-
 var vert$1 = `attribute vec2 position;
-attribute vec4 color;
-attribute float opacity;
+attribute vec4 fillColor;
+attribute float fillOpacity;
 
-uniform vec2 translation;   // From style property paint["fill-translate"]
+uniform vec2 fillTranslate;
 
 varying vec4 fillStyle;
 
 void main() {
-  vec2 mapPos = tileToMap(position) + translation * screenScale.z;
+  vec2 mapPos = tileToMap(position) + fillTranslate * screenScale.z;
 
-  fillStyle = color * opacity;
+  fillStyle = fillColor * fillOpacity;
 
   gl_Position = mapToClip(mapPos, 0.0);
 }
@@ -578,46 +561,28 @@ void main() {
 }
 `;
 
-function initFill(context) {
-  const { initPaintProgram, initAttributes, initIndices } = context;
-
-  const { constructVao, initTilesetPainter } = initPaintProgram(vert$1, frag$1);
-
+function initFill() {
   const attrInfo = {
     position: { numComponents: 2, divisor: 0 },
     tileCoords: { numComponents: 3, divisor: 0 },
-    color: { numComponents: 4, divisor: 0 },
-    opacity: { numComponents: 1, divisor: 0 },
+    fillColor: { numComponents: 4, divisor: 0 },
+    fillOpacity: { numComponents: 1, divisor: 0 },
   };
 
-  function load(buffers) {
-    const attributes = initAttributes(attrInfo, buffers);
-    const indices = initIndices({ data: buffers.indices });
-    const vao = constructVao({ attributes, indices });
-    return { vao, indices, count: buffers.indices.length };
-  }
+  const styleKeys = ["fill-color", "fill-opacity", "fill-translate"];
 
-  function initPainter(style) {
-    const { id, paint } = style;
-
-    const zoomFuncs = [
-      [paint["fill-color"],     "color"],
-      [paint["fill-opacity"],   "opacity"],
-      [paint["fill-translate"], "translation"],
-    ];
-
-    return initTilesetPainter(id, zoomFuncs);
-  }
-
-  return { load, initPainter };
+  return {
+    vert: vert$1, frag: frag$1, attrInfo, styleKeys,
+    getSpecialAttrs: () => ({}),
+  };
 }
 
 var vert = `attribute vec2 quadPos;  // Vertices of the quad instance
 attribute vec3 labelPos; // x, y, font size scalar
 attribute vec4 charPos;  // dx, dy (relative to labelPos), w, h
 attribute vec4 sdfRect;  // x, y, w, h
-attribute vec4 color;
-attribute float opacity;
+attribute vec4 textColor;
+attribute float textOpacity;
 
 varying float taperWidth;
 varying vec2 texCoord;
@@ -626,7 +591,7 @@ varying vec4 fillStyle;
 void main() {
   taperWidth = labelPos.z * screenScale.z;
   texCoord = sdfRect.xy + sdfRect.zw * quadPos;
-  fillStyle = color * opacity;
+  fillStyle = textColor * textOpacity;
 
   vec2 mapPos = tileToMap(labelPos.xy);
 
@@ -655,76 +620,87 @@ void main() {
 `;
 
 function initText(context) {
-  const { initPaintProgram, initQuad, initAttributes } = context;
-
-  const program = initPaintProgram(vert, frag);
-  const { uniformSetters, constructVao, initTilesetPainter } = program;
-
-  const quadPos = initQuad({ x0: 0.0, y0: 0.0, x1: 1.0, y1: 1.0 });
-
   const attrInfo = {
     labelPos: { numComponents: 3 },
     charPos: { numComponents: 4 },
     sdfRect: { numComponents: 4 },
     tileCoords: { numComponents: 3 },
-    color: { numComponents: 4 },
-    opacity: { numComponents: 1 },
+    textColor: { numComponents: 4 },
+    textOpacity: { numComponents: 1 },
   };
+  const quadPos = context.initQuad({ x0: 0.0, y0: 0.0, x1: 1.0, y1: 1.0 });
 
-  function load(buffers) {
-    const attributes = initAttributes(attrInfo, buffers, { quadPos });
-    const vao = constructVao({ attributes });
-    return { vao, instanceCount: buffers.labelPos.length / 3 };
-  }
+  const styleKeys = ["text-color", "text-opacity"];
+  // TODO: "text-halo-color", sprites
 
-  function initPainter(style) {
-    const { id, paint } = style;
-
-    const zoomFuncs = [
-      [paint["text-color"],   "color"],
-      [paint["text-opacity"], "opacity"],
-
-      // text-halo-color
-      // TODO: sprites
-    ];
-
-    return initTilesetPainter(id, zoomFuncs, uniformSetters.sdf);
-  }
-
-  return { load, initPainter };
+  return {
+    vert, frag, attrInfo, styleKeys,
+    getSpecialAttrs: () => ({ quadPos }),
+    countInstances: (buffers) => buffers.labelPos.length / 3,
+  };
 }
 
-function initPrograms(context, framebuffer, projScale) {
-  const { initAttribute, initProgram } = context;
-
-  const scaleCode = (projScale) ? mercatorScale : simpleScale;
-
-  context.initAttributes = function(attrInfo, buffers, preInitialized = {}) {
-    return Object.entries(attrInfo).reduce((d, [key, info]) => {
-      const data = buffers[key];
-      if (data) d[key] = initAttribute(Object.assign({ data }, info));
-      return d;
-    }, preInitialized);
-  };
-
-  context.initPaintProgram = function(vert, frag) {
-    const program = initProgram(preamble + scaleCode + vert, frag);
-    const initTilesetPainter = initGrid(context, framebuffer.size, program);
-    const { constructVao, uniformSetters } = program;
-    return { constructVao, uniformSetters, initTilesetPainter };
-  };
+function initPrograms(context, framebuffer, preamble) {
+  const { initProgram, initAttribute, initIndices } = context;
 
   return {
     "background": initBackground(context),
-    "circle": initCircle(context),
-    "line": initLine(context),
-    "fill": initFill(context),
-    "symbol": initText(context),
+    "circle": initPaintProgram(initCircle(context)),
+    "line": initPaintProgram(initLine(context)),
+    "fill": initPaintProgram(initFill()),
+    "symbol": initPaintProgram(initText(context)),
   };
+
+  function initPaintProgram(progInfo) {
+    const { vert, frag, styleKeys } = progInfo;
+
+    const vertex = preamble + vert;
+    const { use, uniformSetters, constructVao } = initProgram(vertex, frag);
+
+    const load = initLoader(progInfo, constructVao);
+
+    const initTilesetPainter = initGrid(framebuffer.size, use, uniformSetters);
+
+    function initPainter(style) {
+      const brush = initTilePainter(context, style, styleKeys, uniformSetters);
+      return initTilesetPainter(brush);
+    }
+
+    return { load, initPainter };
+  }
+
+  function initLoader(progInfo, constructVao) {
+    const { attrInfo, getSpecialAttrs, countInstances } = progInfo;
+
+    function getAttributes(buffers) {
+      return Object.entries(attrInfo).reduce((d, [key, info]) => {
+        const data = buffers[key];
+        if (data) d[key] = initAttribute(Object.assign({ data }, info));
+        return d;
+      }, getSpecialAttrs(buffers));
+    }
+
+    function loadInstanced(buffers) {
+      const attributes = getAttributes(buffers);
+      const vao = constructVao({ attributes });
+      return { vao, instanceCount: countInstances(buffers) };
+    }
+
+    function loadIndexed(buffers) {
+      const attributes = getAttributes(buffers);
+      const indices = initIndices({ data: buffers.indices });
+      const vao = constructVao({ attributes, indices });
+      return { vao, indices, count: buffers.indices.length };
+    }
+
+    return (countInstances) ? loadInstanced : loadIndexed;
+  }
 }
 
-function initGLpaint({ context, framebuffer, projScale }) {
-  const programs = initPrograms(context, framebuffer, projScale);
+function initGLpaint(userParams) {
+  const { context, framebuffer, preamble } = setParams$2(userParams);
+
+  const programs = initPrograms(context, framebuffer, preamble);
 
   function prep() {
     context.bindFramebufferAndSetViewport(framebuffer);
@@ -758,6 +734,11 @@ function initGLpaint({ context, framebuffer, projScale }) {
     const program = programs[type];
     if (!program) return () => null;
 
+    const { layout, paint } = style;
+    if (type === "line") {
+      // We handle line-miter-limit in the paint phase, not layout phase
+      paint["line-miter-limit"] = layout["line-miter-limit"];
+    }
     const painter = program.initPainter(style);
     return Object.assign(painter, { id, type, source, minzoom, maxzoom });
   }
@@ -4060,14 +4041,16 @@ function getTextTransform(code) {
   }
 }
 
+function camelCase$1(hyphenated) {
+  return hyphenated.replace(/-([a-z])/gi, (h, c) => c.toUpperCase());
+}
+
 function initCircleParsing(style) {
   const { paint } = style;
 
-  const dataFuncs = [
-    [paint["circle-radius"],  "radius"],
-    [paint["circle-color"],   "color"],
-    [paint["circle-opacity"], "opacity"],
-  ].filter(([get]) => get.type === "property");
+  const styleKeys = ["circle-radius", "circle-color", "circle-opacity"];
+  const dataFuncs = styleKeys.filter(k => paint[k].type === "property")
+    .map(k => ([paint[k], camelCase$1(k)]));
 
   return function(feature, { z, x, y }) {
     const circlePos = flattenPoints(feature.geometry);
@@ -4106,10 +4089,9 @@ function initLineParsing(style) {
   const { paint } = style;
 
   // TODO: check for property-dependence of lineWidth, lineGapWidth
-  const dataFuncs = [
-    [paint["line-color"], "color"],
-    [paint["line-opacity"], "opacity"],
-  ].filter(([get]) => get.type === "property");
+  const styleKeys = ["line-color", "line-opacity"];
+  const dataFuncs = styleKeys.filter(k => paint[k].type === "property")
+    .map(k => ([paint[k], camelCase$1(k)]));
 
   return function(feature, { z, x, y }) {
     const lines = flattenLines(feature.geometry);
@@ -4860,10 +4842,9 @@ var earcut$1 = earcut$2.exports;
 function initFillParsing(style) {
   const { paint } = style;
 
-  const dataFuncs = [
-    [paint["fill-color"], "color"],
-    [paint["fill-opacity"], "opacity"],
-  ].filter(([get]) => get.type === "property");
+  const styleKeys = ["fill-color", "fill-opacity"];
+  const dataFuncs = styleKeys.filter(k => paint[k].type === "property")
+    .map(k => ([paint[k], camelCase$1(k)]));
 
   return function(feature, { z, x, y }) {
     const triangles = triangulate(feature.geometry);
@@ -5220,10 +5201,9 @@ function initShaping(style) {
 
   const shaper = initShaper(layout);
 
-  const dataFuncs = [
-    [paint["text-color"],   "color"],
-    [paint["text-opacity"], "opacity"],
-  ].filter(([get]) => get.type === "property");
+  const styleKeys = ["text-color", "text-opacity"];
+  const dataFuncs = styleKeys.filter(k => paint[k].type === "property")
+    .map(k => ([paint[k], camelCase(k)]));
 
   return function(feature, tileCoords, atlas, tree) {
     // tree is an RBush from the 'rbush' module. NOTE: will be updated!
@@ -5254,6 +5234,10 @@ function initShaping(style) {
     // TODO: drop if outside tile?
     return buffers;
   };
+}
+
+function camelCase(hyphenated) {
+  return hyphenated.replace(/-([a-z])/gi, (h, c) => c.toUpperCase());
 }
 
 function initSerializer(style) {
