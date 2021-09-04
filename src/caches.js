@@ -1,5 +1,5 @@
 import * as chunkedQueue from "chunked-queue";
-import { initTileMixer } from "tile-mixer";
+import * as tileWorker from "tile-worker";
 import { initCache } from "tile-rack";
 
 export function initCaches({ context, glyphs }) {
@@ -15,7 +15,7 @@ export function initCaches({ context, glyphs }) {
     switch (source.type) {
       case "vector":
       case "geojson":
-        return initTileMixer({
+        return tileWorker.init({
           context, queue, glyphs, source, layers,
           threads: (source.type === "geojson") ? 1 : 2,
         });
