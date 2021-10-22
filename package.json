@@ -33,20 +33,20 @@
   "homepage": "https://github.com/GlobeletJS/tile-setter#readme",
   "devDependencies": {
     "@rollup/plugin-commonjs": "^19.0.0",
-    "@rollup/plugin-node-resolve": "^13.0.0",
+    "@rollup/plugin-node-resolve": "^13.0.6",
     "@turf/boolean-point-in-polygon": "^6.0.1",
     "d3": "^6.2.0",
-    "eslint": "^7.30.0",
+    "eslint": "^8.0.1",
     "eslint-config-globeletjs": "^0.0.6",
-    "rollup": "^2.52.8",
+    "rollup": "^2.58.0",
     "yawgl": "^0.3.3"
   },
   "dependencies": {
     "chunked-queue": "^0.1.4",
     "d3-tile": "github:GlobeletJS/d3-tile",
-    "tile-gl": "^0.2.2",
+    "tile-gl": "^0.3.0",
     "tile-rack": "^1.0.4",
     "tile-stencil": "^0.4.4",
-    "tile-worker": "^0.0.1"
+    "tile-worker": "^0.0.3"
   }
 }

@@ -201,7 +201,11 @@ float styleScale(vec2 tilePos) {
 `;
 
 function setParams$2(userParams) {
-  const { context, framebuffer, projScale } = userParams;
+  const {
+    context, framebuffer,
+    projScale = false,
+    multiTile = true,
+  } = userParams;
 
   const scaleCode = (projScale) ? mercatorScale : simpleScale;
   const size = framebuffer.size;
@@ -212,114 +216,9 @@ function setParams$2(userParams) {
   };
 
   return {
-    context,
-    framebuffer,
+    context, framebuffer, multiTile,
     preamble: preamble + scaleCode,
   };
-}
-
-function camelCase(hyphenated) {
-  return hyphenated.replace(/-([a-z])/gi, (h, c) => c.toUpperCase());
-}
-
-function initStyleProg(style, styleKeys, program, bufferSize) {
-  const { id, paint } = style;
-  const { use, uniformSetters } = program;
-  const { sdf, screenScale } = uniformSetters;
-
-  const zoomFuncs = styleKeys
-    .filter(styleKey => paint[styleKey].type !== "property")
-    .map(styleKey => {
-      const get = paint[styleKey];
-      const shaderVar = camelCase(styleKey);
-      const set = uniformSetters[shaderVar];
-      return (z, f) => set(get(z, f));
-    });
-
-  function setup(zoom, pixRatio = 1.0, cameraScale = 1.0) {
-    use();
-    const { width, height } = bufferSize;
-    screenScale([2 / width, -2 / height, pixRatio, cameraScale]);
-    zoomFuncs.forEach(f => f(zoom));
-  }
-
-  function getData(tile) {
-    const { layers, atlas } = tile.data;
-    const data = layers[id];
-
-    if (data && sdf && atlas) sdf(atlas);
-
-    return data;
-  }
-
-  return { setup, getData };
-}
-
-function initGrid(context, uniformSetters, styleProg) {
-  const { mapCoords, mapShift } = uniformSetters;
-
-  function setGrid(tileset, pixRatio = 1) {
-    const { x, y, z } = tileset[0];
-    const numTiles = 1 << z;
-    const xw = x - Math.floor(x / numTiles) * numTiles;
-    const extent = 512; // TODO: don't assume this!!
-    mapCoords([xw, y, z, extent]);
-
-    const { translate, scale: rawScale } = tileset;
-    const scale = rawScale * pixRatio;
-    const [dx, dy] = [x, y].map((c, i) => (c + translate[i]) * scale);
-
-    // At low zooms, some tiles may be repeated on opposite ends of the map
-    // We split them into subsets, with different values of mapShift
-    // NOTE: Only accounts for repetition across X!
-    const subsets = [0, 1, 2].map(repeat => {
-      const shift = repeat * numTiles;
-      const tiles = tileset.filter(tile => {
-        const delta = tile.x - x;
-        return (delta >= shift && delta < shift + numTiles);
-      });
-      const setter = () => mapShift([dx + shift * scale, dy, scale]);
-      return { tiles, setter };
-    }).filter(set => set.tiles.length);
-
-    return { translate, scale, subsets };
-  }
-
-  function drawTile(box, translate, scale) {
-    const { x, y, tile } = box;
-    const data = styleProg.getData(tile);
-    if (!data) return;
-
-    const [x0, y0] = [x, y].map((c, i) => (c + translate[i]) * scale);
-    context.clipRectFlipY(x0, y0, scale, scale);
-
-    context.draw(data.buffers);
-  }
-
-  return function({ tileset, zoom, pixRatio = 1, cameraScale = 1.0 }) {
-    if (!tileset || !tileset.length) return;
-
-    styleProg.setup(zoom, pixRatio, cameraScale);
-
-    const { translate, scale, subsets } = setGrid(tileset, pixRatio);
-
-    subsets.forEach(({ setter, tiles }) => {
-      setter();
-      tiles.forEach(t => drawTile(t, translate, scale));
-    });
-  };
-}
-
-function initBackground(context) {
-  function initPainter({ paint }) {
-    return function({ zoom }) {
-      const opacity = paint["background-opacity"](zoom);
-      const color = paint["background-color"](zoom);
-      context.clear(color.map(c => c * opacity));
-    };
-  }
-
-  return { initPainter };
 }
 
 var vert$3 = `attribute vec2 quadPos; // Vertices of the quad instance
@@ -647,91 +546,221 @@ function initText(context) {
   };
 }
 
-function initPrograms(context, framebuffer, preamble) {
-  const { initProgram, initAttribute, initIndices } = context;
-  const bufferSize = framebuffer.size;
+function initLoader(context, progInfo, constructVao) {
+  const { initAttribute, initIndices } = context;
+  const { attrInfo, getSpecialAttrs, countInstances } = progInfo;
 
+  function getAttributes(buffers) {
+    return Object.entries(attrInfo).reduce((d, [key, info]) => {
+      const data = buffers[key];
+      if (data) d[key] = initAttribute(Object.assign({ data }, info));
+      return d;
+    }, getSpecialAttrs(buffers));
+  }
+
+  function loadInstanced(buffers) {
+    const attributes = getAttributes(buffers);
+    const vao = constructVao({ attributes });
+    return { vao, instanceCount: countInstances(buffers) };
+  }
+
+  function loadIndexed(buffers) {
+    const attributes = getAttributes(buffers);
+    const indices = initIndices({ data: buffers.indices });
+    const vao = constructVao({ attributes, indices });
+    return { vao, indices, count: buffers.indices.length };
+  }
+
+  return (countInstances) ? loadInstanced : loadIndexed;
+}
+
+function initGrid(use, uniformSetters, framebuffer) {
+  const { screenScale, mapCoords, mapShift } = uniformSetters;
+
+  function setScreen(pixRatio = 1.0, cameraScale = 1.0) {
+    const { width, height } = framebuffer.size;
+    screenScale([2 / width, -2 / height, pixRatio, cameraScale]);
+  }
+
+  function setCoords({ x, y, z }) {
+    const numTiles = 1 << z;
+    const xw = x - Math.floor(x / numTiles) * numTiles;
+    const extent = 512; // TODO: don't assume this!!
+    mapCoords([xw, y, z, extent]);
+    return numTiles;
+  }
+
+  function setShift(tileset, pixRatio = 1) {
+    const { x, y } = tileset[0];
+    const { translate, scale: rawScale } = tileset;
+    const scale = rawScale * pixRatio;
+    const [dx, dy] = [x, y].map((c, i) => (c + translate[i]) * scale);
+    mapShift([dx, dy, scale]);
+    return { translate, scale };
+  }
+
+  return { use, setScreen, setCoords, setShift };
+}
+
+function camelCase(hyphenated) {
+  return hyphenated.replace(/-([a-z])/gi, (h, c) => c.toUpperCase());
+}
+
+function initStyleProg(style, styleKeys, uniformSetters) {
+  const { id, paint } = style;
+  const { sdf } = uniformSetters;
+
+  const zoomFuncs = styleKeys
+    .filter(styleKey => paint[styleKey].type !== "property")
+    .map(styleKey => {
+      const get = paint[styleKey];
+      const shaderVar = camelCase(styleKey);
+      const set = uniformSetters[shaderVar];
+      return (z, f) => set(get(z, f));
+    });
+
+  function setStyles(zoom) {
+    zoomFuncs.forEach(f => f(zoom));
+  }
+
+  function getData(tile) {
+    const { layers, atlas } = tile.data;
+    const data = layers[id];
+
+    if (data && sdf && atlas) sdf(atlas);
+
+    return data;
+  }
+
+  return { setStyles, getData };
+}
+
+function initTilePainter(context, program, layer, multiTile) {
+  return (multiTile) ? drawTileset : drawTile;
+
+  function drawTile({ tile, zoom, pixRatio = 1.0, cameraScale = 1.0 }) {
+    program.use();
+
+    const data = layer.getData(tile);
+    if (!data) return;
+    const z = (zoom !== undefined) ? zoom : tile.z;
+    layer.setStyles(z);
+
+    program.setScreen(pixRatio, cameraScale);
+    program.setCoords(tile);
+
+    const fakeTileset = [{ x: 0, y: 0 }];
+    Object.assign(fakeTileset, { translate: [0, 0], scale: 512 });
+    program.setShift(fakeTileset, pixRatio);
+
+    context.draw(data.buffers);
+  }
+
+  function drawTileset({ tileset, zoom, pixRatio = 1.0, cameraScale = 1.0 }) {
+    if (!tileset || !tileset.length) return;
+
+    program.use();
+    program.setScreen(pixRatio, cameraScale);
+    layer.setStyles(zoom);
+
+    const numTiles = program.setCoords(tileset[0]);
+    const subsets = antiMeridianSplit(tileset, numTiles);
+
+    subsets.forEach(subset => {
+      const { translate, scale } = program.setShift(subset, pixRatio);
+      subset.forEach(t => drawTileBox(t, translate, scale));
+    });
+  }
+
+  function antiMeridianSplit(tileset, numTiles) {
+    const { translate, scale } = tileset;
+    const { x } = tileset[0];
+
+    // At low zooms, some tiles may be repeated on opposite ends of the map
+    // We split them into subsets, one tileset for each copy of the map
+    return [0, 1, 2].map(repeat => repeat * numTiles).map(shift => {
+      const tiles = tileset.filter(tile => {
+        const delta = tile.x - x - shift;
+        return (delta >= 0 && delta < numTiles);
+      });
+      return Object.assign(tiles, { translate, scale });
+    }).filter(subset => subset.length);
+  }
+
+  function drawTileBox(box, translate, scale) {
+    const { x, y, tile } = box;
+    const data = layer.getData(tile);
+    if (!data) return;
+
+    const [x0, y0] = [x, y].map((c, i) => (c + translate[i]) * scale);
+    context.clipRectFlipY(x0, y0, scale, scale);
+
+    context.draw(data.buffers);
+  }
+}
+
+function initPrograms(context, framebuffer, preamble, multiTile) {
   return {
-    "background": initBackground(context),
-    "circle": initPaintProgram(initCircle(context)),
-    "line": initPaintProgram(initLine(context)),
-    "fill": initPaintProgram(initFill()),
-    "symbol": initPaintProgram(initText(context)),
+    "circle": setupProgram(initCircle(context)),
+    "line": setupProgram(initLine(context)),
+    "fill": setupProgram(initFill()),
+    "symbol": setupProgram(initText(context)),
   };
 
-  function initPaintProgram(progInfo) {
+  function setupProgram(progInfo) {
     const { vert, frag, styleKeys } = progInfo;
 
-    const program = initProgram(preamble + vert, frag);
-    const { uniformSetters, constructVao } = program;
+    const program = context.initProgram(preamble + vert, frag);
+    const { use, uniformSetters, constructVao } = program;
 
-    const load = initLoader(progInfo, constructVao);
+    const load = initLoader(context, progInfo, constructVao);
+    const grid = initGrid(use, uniformSetters, framebuffer);
 
     function initPainter(style) {
-      const styleProg = initStyleProg(style, styleKeys, program, bufferSize);
-      return initGrid(context, uniformSetters, styleProg);
+      const styleProg = initStyleProg(style, styleKeys, uniformSetters);
+      return initTilePainter(context, grid, styleProg, multiTile);
     }
 
     return { load, initPainter };
   }
+}
 
-  function initLoader(progInfo, constructVao) {
-    const { attrInfo, getSpecialAttrs, countInstances } = progInfo;
-
-    function getAttributes(buffers) {
-      return Object.entries(attrInfo).reduce((d, [key, info]) => {
-        const data = buffers[key];
-        if (data) d[key] = initAttribute(Object.assign({ data }, info));
-        return d;
-      }, getSpecialAttrs(buffers));
-    }
-
-    function loadInstanced(buffers) {
-      const attributes = getAttributes(buffers);
-      const vao = constructVao({ attributes });
-      return { vao, instanceCount: countInstances(buffers) };
-    }
-
-    function loadIndexed(buffers) {
-      const attributes = getAttributes(buffers);
-      const indices = initIndices({ data: buffers.indices });
-      const vao = constructVao({ attributes, indices });
-      return { vao, indices, count: buffers.indices.length };
-    }
-
-    return (countInstances) ? loadInstanced : loadIndexed;
+function initBackground(context) {
+  function initPainter({ paint }) {
+    return function({ zoom }) {
+      const opacity = paint["background-opacity"](zoom);
+      const color = paint["background-color"](zoom);
+      context.clear(color.map(c => c * opacity));
+    };
   }
+
+  return { initPainter };
 }
 
 function initGLpaint(userParams) {
-  const { context, framebuffer, preamble } = setParams$2(userParams);
+  const { context, framebuffer, preamble, multiTile } = setParams$2(userParams);
 
-  const programs = initPrograms(context, framebuffer, preamble);
+  const programs = initPrograms(context, framebuffer, preamble, multiTile);
+  programs["background"] = initBackground(context);
 
   function prep() {
     context.bindFramebufferAndSetViewport(framebuffer);
     return context.clear();
   }
 
-  function loadBuffers(buffers) {
-    if (buffers.indices) {
-      return programs.fill.load(buffers);
-    } else if (buffers.lines) {
-      return programs.line.load(buffers);
-    } else if (buffers.circlePos) {
-      return programs.circle.load(buffers);
-    } else if (buffers.labelPos) {
-      return programs.symbol.load(buffers);
-    } else {
-      throw "loadBuffers: unknown buffers structure!";
-    }
+  function loadBuffers(layer) {
+    const { type, buffers } = layer;
+
+    const program = programs[type];
+    if (!program) throw "loadBuffers: unknown layer type";
+
+    layer.buffers = program.load(buffers);
   }
 
   function loadAtlas(atlas) {
     const format = context.gl.ALPHA;
     const { width, height, data } = atlas;
-    const mips = false;
-    return context.initTexture({ format, width, height, data, mips });
+    return context.initTexture({ format, width, height, data, mips: false });
   }
 
   function initPainter(style) {
@@ -4034,37 +4063,191 @@ function geojsonvtToJSON(value) {
 }
 
 function init$1(userParams) {
-  const { source, defaultID } = setParams$1(userParams);
+  const { source, defaultID } = setParams$2(userParams);
 
   return (source.type === "geojson")
     ? initGeojson(source, defaultID)
     : initMVT(source);
 }
 
-function setParams$1(userParams) {
+function setParams$2(userParams) {
   const { source, defaultID = "default" } = userParams;
 
-  if (typeof defaultID !== "string") fail$1("defaultID must be a string");
+  if (typeof defaultID !== "string") fail$2("defaultID must be a string");
 
   const { type, data, tiles } = source;
 
   if (type === "geojson") {
     if (!data || !["Feature", "FeatureCollection"].includes(data.type)) {
-      fail$1("no valid geojson features");
+      fail$2("no valid geojson features");
     }
   } else if (type === "vector") {
     if (!Array.isArray(tiles) || !tiles.every(url => typeof url === "string")) {
-      fail$1("no valid tile endpoints");
+      fail$2("no valid tile endpoints");
     }
   } else {
-    fail$1("source.type must be geojson or vector");
+    fail$2("source.type must be geojson or vector");
   }
 
   return { source, defaultID };
 }
 
-function fail$1(message) {
+function fail$2(message) {
   throw Error("tile-retriever: " + message);
+}
+
+function buildFeatureFilter(filterObj) {
+  // filterObj is a filter definition following the 'deprecated' syntax:
+  // https://maplibre.org/maplibre-gl-js-docs/style-spec/other/#other-filter
+  if (!filterObj) return () => true;
+  const [type, ...vals] = filterObj;
+
+  // If this is a combined filter, the vals are themselves filter definitions
+  switch (type) {
+    case "all": {
+      const filters = vals.map(buildFeatureFilter);  // Iteratively recursive!
+      return (d) => filters.every( filt => filt(d) );
+    }
+    case "any": {
+      const filters = vals.map(buildFeatureFilter);
+      return (d) => filters.some( filt => filt(d) );
+    }
+    case "none": {
+      const filters = vals.map(buildFeatureFilter);
+      return (d) => filters.every( filt => !filt(d) );
+    }
+    default:
+      return getSimpleFilter(filterObj);
+  }
+}
+
+function getSimpleFilter(filterObj) {
+  const [type, key, ...vals] = filterObj;
+  const getVal = initFeatureValGetter(key);
+
+  switch (type) {
+    // Existential Filters
+    case "has":
+      return d => !!getVal(d); // !! forces a Boolean return
+    case "!has":
+      return d => !getVal(d);
+
+    // Comparison Filters
+    case "==":
+      return d => getVal(d) === vals[0];
+    case "!=":
+      return d => getVal(d) !== vals[0];
+    case ">":
+      return d => getVal(d) > vals[0];
+    case ">=":
+      return d => getVal(d) >= vals[0];
+    case "<":
+      return d => getVal(d) < vals[0];
+    case "<=":
+      return d => getVal(d) <= vals[0];
+
+    // Set Membership Filters
+    case "in" :
+      return d => vals.includes( getVal(d) );
+    case "!in" :
+      return d => !vals.includes( getVal(d) );
+    default:
+      console.log("prepFilter: unknown filter type = " + filterObj[0]);
+  }
+  // No recognizable filter criteria. Return a filter that is always true
+  return () => true;
+}
+
+function initFeatureValGetter(key) {
+  switch (key) {
+    case "$type":
+      // NOTE: data includes MultiLineString, MultiPolygon, etc-NOT IN SPEC
+      return f => {
+        const t = f.geometry.type;
+        if (t === "MultiPoint") return "Point";
+        if (t === "MultiLineString") return "LineString";
+        if (t === "MultiPolygon") return "Polygon";
+        return t;
+      };
+    case "$id":
+      return f => f.id;
+    default:
+      return f => f.properties[key];
+  }
+}
+
+function initLayerFilter(style) {
+  const { id, type: styleType, filter,
+    minzoom = 0, maxzoom = 99,
+    "source-layer": sourceLayer,
+  } = style;
+
+  const filterObject = composeFilters(getGeomFilter(styleType), filter);
+  const parsedFilter = buildFeatureFilter(filterObject);
+
+  return function(source, zoom) {
+    // source is a dictionary of FeatureCollections, keyed on source-layer
+    if (!source || zoom < minzoom || maxzoom < zoom) return;
+
+    const layer = source[sourceLayer];
+    if (!layer) return;
+
+    const { type, extent, features: rawFeatures } = layer;
+    const features = rawFeatures.filter(parsedFilter);
+    if (features.length > 0) return { [id]: { type, extent, features } };
+  };
+}
+
+function composeFilters(filter1, filter2) {
+  if (!filter1) return filter2;
+  if (!filter2) return filter1;
+  return ["all", filter1, filter2];
+}
+
+function getGeomFilter(type) {
+  switch (type) {
+    case "circle":
+      return ["==", "$type", "Point"];
+    case "line":
+      return ["!=", "$type", "Point"]; // Could be LineString or Polygon
+    case "fill":
+      return ["==", "$type", "Polygon"];
+    case "symbol":
+      return ["==", "$type", "Point"]; // TODO: implement line geom labels
+    default:
+      return; // No condition on geometry
+  }
+}
+
+function init(userParams) {
+  const { layers } = setParams$1(userParams);
+
+  const filters = layers.map(initLayerFilter);
+
+  return function(source, zoom) {
+    return filters.reduce((d, f) => Object.assign(d, f(source, zoom)), {});
+  };
+}
+
+const vectorTypes = ["symbol", "circle", "line", "fill"];
+
+function setParams$1(userParams) {
+  const { layers } = userParams;
+
+  // Confirm supplied styles are all vector layers reading from the same source
+  if (!layers || !layers.length) fail$1("no valid array of style layers");
+
+  const allVectors = layers.every(l => vectorTypes.includes(l.type));
+  if (!allVectors) fail$1("not all layers are vector types");
+
+  const sameSource = layers.every(l => l.source === layers[0].source);
+  if (!sameSource) fail$1("supplied layers use different sources");
+
+  return { layers };
+}
+
+function fail$1(message) {
+  throw Error("ERROR in tile-mixer: " + message);
 }
 
 function define(constructor, factory, prototype) {
@@ -4741,86 +4924,6 @@ const paintDefaults = {
   },
 };
 
-function buildFeatureFilter(filterObj) {
-  // filterObj is a filter definition following the 'deprecated' syntax:
-  // https://maplibre.org/maplibre-gl-js-docs/style-spec/other/#other-filter
-  if (!filterObj) return () => true;
-  const [type, ...vals] = filterObj;
-
-  // If this is a combined filter, the vals are themselves filter definitions
-  switch (type) {
-    case "all": {
-      const filters = vals.map(buildFeatureFilter);  // Iteratively recursive!
-      return (d) => filters.every( filt => filt(d) );
-    }
-    case "any": {
-      const filters = vals.map(buildFeatureFilter);
-      return (d) => filters.some( filt => filt(d) );
-    }
-    case "none": {
-      const filters = vals.map(buildFeatureFilter);
-      return (d) => filters.every( filt => !filt(d) );
-    }
-    default:
-      return getSimpleFilter(filterObj);
-  }
-}
-
-function getSimpleFilter(filterObj) {
-  const [type, key, ...vals] = filterObj;
-  const getVal = initFeatureValGetter(key);
-
-  switch (type) {
-    // Existential Filters
-    case "has":
-      return d => !!getVal(d); // !! forces a Boolean return
-    case "!has":
-      return d => !getVal(d);
-
-    // Comparison Filters
-    case "==":
-      return d => getVal(d) === vals[0];
-    case "!=":
-      return d => getVal(d) !== vals[0];
-    case ">":
-      return d => getVal(d) > vals[0];
-    case ">=":
-      return d => getVal(d) >= vals[0];
-    case "<":
-      return d => getVal(d) < vals[0];
-    case "<=":
-      return d => getVal(d) <= vals[0];
-
-    // Set Membership Filters
-    case "in" :
-      return d => vals.includes( getVal(d) );
-    case "!in" :
-      return d => !vals.includes( getVal(d) );
-    default:
-      console.log("prepFilter: unknown filter type = " + filterObj[0]);
-  }
-  // No recognizable filter criteria. Return a filter that is always true
-  return () => true;
-}
-
-function initFeatureValGetter(key) {
-  switch (key) {
-    case "$type":
-      // NOTE: data includes MultiLineString, MultiPolygon, etc-NOT IN SPEC
-      return f => {
-        const t = f.geometry.type;
-        if (t === "MultiPoint") return "Point";
-        if (t === "MultiLineString") return "LineString";
-        if (t === "MultiPolygon") return "Polygon";
-        return t;
-      };
-    case "$id":
-      return f => f.id;
-    default:
-      return f => f.properties[key];
-  }
-}
-
 function getStyleFuncs(inputLayer) {
   const layer = Object.assign({}, inputLayer); // Leave input unchanged
 
@@ -4829,57 +4932,6 @@ function getStyleFuncs(inputLayer) {
   layer.paint  = autoGetters(layer.paint,  paintDefaults[layer.type] );
 
   return layer;
-}
-
-function initSourceFilter(styles) {
-  const filters = styles.map(initLayerFilter);
-
-  return function(source, z) {
-    return filters.reduce((d, f) => Object.assign(d, f(source, z)), {});
-  };
-}
-
-function initLayerFilter(style) {
-  const { id, type: styleType, filter,
-    minzoom = 0, maxzoom = 99,
-    "source-layer": sourceLayer,
-  } = style;
-
-  const filterObject = composeFilters(getGeomFilter(styleType), filter);
-  const parsedFilter = buildFeatureFilter(filterObject);
-
-  return function(source, zoom) {
-    // source is a dictionary of FeatureCollections, keyed on source-layer
-    if (!source || zoom < minzoom || maxzoom < zoom) return;
-
-    const layer = source[sourceLayer];
-    if (!layer) return;
-
-    const { type, extent, features: rawFeatures } = layer;
-    const features = rawFeatures.filter(parsedFilter);
-    if (features.length > 0) return { [id]: { type, extent, features } };
-  };
-}
-
-function composeFilters(filter1, filter2) {
-  if (!filter1) return filter2;
-  if (!filter2) return filter1;
-  return ["all", filter1, filter2];
-}
-
-function getGeomFilter(type) {
-  switch (type) {
-    case "circle":
-      return ["==", "$type", "Point"];
-    case "line":
-      return ["!=", "$type", "Point"]; // Could be LineString or Polygon
-    case "fill":
-      return ["==", "$type", "Polygon"];
-    case "symbol":
-      return ["==", "$type", "Point"]; // TODO: implement line geom labels
-    default:
-      return; // No condition on geometry
-  }
 }
 
 class AlphaImage {
@@ -4967,7 +5019,8 @@ function outOfRange(point, size, image) {
   );
 }
 
-const GLYPH_PBF_BORDER$1 = 3;
+const GLYPH_PBF_BORDER = 3;
+const ONE_EM = 24;
 
 function parseGlyphPbf(data) {
   // See maplibre-gl-js/src/style/parse_glyph_pbf.js
@@ -4985,7 +5038,7 @@ function readFontstack(tag, glyphs, pbf) {
   const glyph = pbf.readMessage(readGlyph, {});
   const { id, bitmap, width, height, left, top, advance } = glyph;
 
-  const borders = 2 * GLYPH_PBF_BORDER$1;
+  const borders = 2 * GLYPH_PBF_BORDER;
   const size = { width: width + borders, height: height + borders };
 
   glyphs.push({
@@ -5135,7 +5188,7 @@ function potpack(boxes) {
     };
 }
 
-const ATLAS_PADDING$1 = 1;
+const ATLAS_PADDING = 1;
 
 function buildAtlas(fonts) {
   // See maplibre-gl-js/src/render/glyph_atlas.js
@@ -5177,8 +5230,8 @@ function getPosition(glyph) {
   if (width === 0 || height === 0) return;
 
   // Construct a preliminary rect, positioned at the origin for now
-  const w = width + 2 * ATLAS_PADDING$1;
-  const h = height + 2 * ATLAS_PADDING$1;
+  const w = width + 2 * ATLAS_PADDING;
+  const h = height + 2 * ATLAS_PADDING;
   const rect = { x: 0, y: 0, w, h };
 
   return { metrics, rect };
@@ -5191,7 +5244,7 @@ function copyGlyphBitmap(glyph, positions, image) {
 
   const srcPt = { x: 0, y: 0 };
   const { x, y } = position.rect;
-  const dstPt = { x: x + ATLAS_PADDING$1, y: y + ATLAS_PADDING$1 };
+  const dstPt = { x: x + ATLAS_PADDING, y: y + ATLAS_PADDING };
   AlphaImage.copy(bitmap, image, srcPt, dstPt, bitmap);
 }
 
@@ -5279,10 +5332,8 @@ function initAtlasGetter({ parsedStyles, glyphEndpoint }) {
   return function(layers, zoom) {
     const fonts = Object.entries(layers).reduce((d, [id, layer]) => {
       const getCharCodes = textGetters[id];
-      if (!getCharCodes) return d;
-
       // NOTE: MODIFIES layer.features IN PLACE
-      layer.features.forEach(f => getCharCodes(f, zoom, d));
+      if (getCharCodes) layer.features.forEach(f => getCharCodes(f, zoom, d));
       return d;
     }, {});
 
@@ -5290,9 +5341,7 @@ function initAtlasGetter({ parsedStyles, glyphEndpoint }) {
   };
 }
 
-function initTextGetter(style) {
-  const layout = style.layout;
-
+function initTextGetter({ layout }) {
   return function(feature, zoom, fonts) {
     // Get the label text from feature properties
     const textField = layout["text-field"](zoom, feature);
@@ -5327,90 +5376,410 @@ function getTextTransform(code) {
   }
 }
 
+function initStyle({ layout, paint }) {
+  const layoutKeys = [
+    "text-letter-spacing",
+    "text-max-width",
+    "text-size",
+    "text-padding",
+    "text-line-height",
+    "text-anchor",
+    "text-offset",
+    "text-justify",
+  ];
+
+  const paintKeys = [
+    "text-color",
+    "text-opacity",
+  ];
+
+  const bufferFuncs = paintKeys
+    .filter(k => paint[k].type === "property")
+    .map(k => ([paint[k], camelCase$1(k)]));
+
+  return function(zoom, feature) {
+    const layoutVals = layoutKeys
+      .reduce((d, k) => (d[k] = layout[k](zoom, feature), d), {});
+
+    const bufferVals = bufferFuncs
+      .reduce((d, [f, k]) => (d[k] = f(zoom, feature), d), {});
+
+    return { layoutVals, bufferVals };
+  };
+}
+
 function camelCase$1(hyphenated) {
   return hyphenated.replace(/-([a-z])/gi, (h, c) => c.toUpperCase());
 }
 
-function initCircleParsing(style) {
-  const { paint } = style;
+function getGlyphInfo(feature, atlas) {
+  const { font, charCodes } = feature;
+  const positions = atlas.positions[font];
 
-  const styleKeys = ["circle-radius", "circle-color", "circle-opacity"];
-  const dataFuncs = styleKeys.filter(k => paint[k].type === "property")
-    .map(k => ([paint[k], camelCase$1(k)]));
+  if (!positions || !charCodes || !charCodes.length) return;
 
-  return function(feature, { z, x, y }) {
-    const circlePos = flattenPoints(feature.geometry);
-    if (!circlePos) return;
+  const { width, height } = atlas.image;
 
-    const length = circlePos.length / 2;
+  return charCodes.map(code => {
+    const pos = positions[code];
+    if (!pos) return;
 
-    const buffers = {
-      circlePos,
-      tileCoords: Array.from({ length }).flatMap(() => [x, y, z]),
+    const { left, top, advance } = pos.metrics;
+    const { x, y, w, h } = pos.rect;
+
+    const sdfRect = [x / width, y / height, w / width, h / height];
+    const metrics = { left, top, advance, w, h };
+
+    return { code, metrics, sdfRect };
+  }).filter(i => i !== undefined);
+}
+
+const whitespace = {
+  // From maplibre-gl-js/src/symbol/shaping.js
+  [0x09]: true, // tab
+  [0x0a]: true, // newline
+  [0x0b]: true, // vertical tab
+  [0x0c]: true, // form feed
+  [0x0d]: true, // carriage return
+  [0x20]: true, // space
+};
+
+const breakable = {
+  // From maplibre-gl-js/src/symbol/shaping.js
+  [0x0a]: true, // newline
+  [0x20]: true, // space
+  [0x26]: true, // ampersand
+  [0x28]: true, // left parenthesis
+  [0x29]: true, // right parenthesis
+  [0x2b]: true, // plus sign
+  [0x2d]: true, // hyphen-minus
+  [0x2f]: true, // solidus
+  [0xad]: true, // soft hyphen
+  [0xb7]: true, // middle dot
+  [0x200b]: true, // zero-width space
+  [0x2010]: true, // hyphen
+  [0x2013]: true, // en dash
+  [0x2027]: true  // interpunct
+};
+
+function getBreakPoints(glyphs, spacing, targetWidth) {
+  const potentialLineBreaks = [];
+  const last = glyphs.length - 1;
+  let cursor = 0;
+
+  glyphs.forEach((g, i) => {
+    const { code, metrics: { advance } } = g;
+    if (!whitespace[code]) cursor += advance + spacing;
+
+    if (i == last) return;
+    // if (!breakable[code]&& !charAllowsIdeographicBreaking(code)) return;
+    if (!breakable[code]) return;
+
+    const breakInfo = evaluateBreak(
+      i + 1,
+      cursor,
+      targetWidth,
+      potentialLineBreaks,
+      calculatePenalty(code, glyphs[i + 1].code),
+      false
+    );
+    potentialLineBreaks.push(breakInfo);
+  });
+
+  const lastBreak = evaluateBreak(
+    glyphs.length,
+    cursor,
+    targetWidth,
+    potentialLineBreaks,
+    0,
+    true
+  );
+
+  return leastBadBreaks(lastBreak);
+}
+
+function leastBadBreaks(lastBreak) {
+  if (!lastBreak) return [];
+  return leastBadBreaks(lastBreak.priorBreak).concat(lastBreak.index);
+}
+
+function evaluateBreak(index, x, targetWidth, breaks, penalty, isLastBreak) {
+  // Start by assuming the supplied (index, x) is the first break
+  const init = {
+    index, x,
+    priorBreak: null,
+    badness: calculateBadness(x)
+  };
+
+  // Now consider all previous possible break points, and
+  // return the pair corresponding to the best combination of breaks
+  return breaks.reduce((best, prev) => {
+    const badness = calculateBadness(x - prev.x) + prev.badness;
+    if (badness < best.badness) {
+      best.priorBreak = prev;
+      best.badness = badness;
+    }
+    return best;
+  }, init);
+
+  function calculateBadness(width) {
+    const raggedness = (width - targetWidth) ** 2;
+
+    if (!isLastBreak) return raggedness + Math.abs(penalty) * penalty;
+
+    // Last line: prefer shorter than average
+    return (width < targetWidth)
+      ? raggedness / 2
+      : raggedness * 2;
+  }
+}
+
+function calculatePenalty(code, nextCode) {
+  let penalty = 0;
+  // Force break on newline
+  if (code === 0x0a) penalty -= 10000;
+  // Penalize open parenthesis at end of line
+  if (code === 0x28 || code === 0xff08) penalty += 50;
+  // Penalize close parenthesis at beginning of line
+  if (nextCode === 0x29 || nextCode === 0xff09) penalty += 50;
+
+  return penalty;
+}
+
+function splitLines(glyphs, styleVals) {
+  // glyphs is an Array of Objects with properties { code, metrics }
+  const spacing = styleVals["text-letter-spacing"] * ONE_EM;
+  const totalWidth = measureLine(glyphs, spacing);
+
+  const maxWidth = styleVals["text-max-width"] * ONE_EM;
+  const lineCount = Math.ceil(totalWidth / maxWidth);
+  if (lineCount < 1) return [];
+
+  const targetWidth = totalWidth / lineCount;
+  const breakPoints = getBreakPoints(glyphs, spacing, targetWidth);
+
+  return breakLines(glyphs, breakPoints, spacing);
+}
+
+function breakLines(glyphs, breakPoints, spacing) {
+  let start = 0;
+
+  return breakPoints.map(lineBreak => {
+    const line = glyphs.slice(start, lineBreak);
+
+    // Trim whitespace from both ends
+    while (line.length && whitespace[line[0].code]) line.shift();
+    while (trailingWhiteSpace(line)) line.pop();
+
+    line.width = measureLine(line, spacing);
+    start = lineBreak;
+    return line;
+  });
+}
+
+function trailingWhiteSpace(line) {
+  const len = line.length;
+  if (!len) return false;
+  return whitespace[line[len - 1].code];
+}
+
+function measureLine(glyphs, spacing) {
+  if (glyphs.length < 1) return 0;
+
+  // No initial value for reduce--so no spacing added for 1st char
+  return glyphs.map(g => g.metrics.advance)
+    .reduce((a, c) => a + c + spacing);
+}
+
+function getTextBox(lines, styleVals) {
+  const [sx, sy] = getTextBoxShift(styleVals["text-anchor"]);
+
+  // Get dimensions and relative position of text area in glyph pixels
+  const w = Math.max(...lines.map(l => l.width));
+  const h = lines.length * styleVals["text-line-height"] * ONE_EM;
+  const x = sx * w + styleVals["text-offset"][0] * ONE_EM;
+  const y = sy * h + styleVals["text-offset"][1] * ONE_EM;
+
+  // Get total bounding box after scale and pad
+  const scale = styleVals["text-size"] / ONE_EM;
+  const pad = styleVals["text-padding"];
+  const bbox = [
+    x * scale - pad,
+    y * scale - pad,
+    (x + w) * scale + pad,
+    (y + h) * scale + pad,
+  ];
+
+  return { x, y, w, h, shiftX: sx, bbox };
+}
+
+function getTextBoxShift(anchor) {
+  // Shift the top-left corner of the text bounding box
+  // by the returned value * bounding box dimensions
+  switch (anchor) {
+    case "top-left":
+      return [0.0, 0.0];
+    case "top-right":
+      return [-1.0, 0.0];
+    case "top":
+      return [-0.5, 0.0];
+    case "bottom-left":
+      return [0.0, -1.0];
+    case "bottom-right":
+      return [-1.0, -1.0];
+    case "bottom":
+      return [-0.5, -1.0];
+    case "left":
+      return [0.0, -0.5];
+    case "right":
+      return [-1.0, -0.5];
+    case "center":
+    default:
+      return [-0.5, -0.5];
+  }
+}
+
+const RECT_BUFFER = GLYPH_PBF_BORDER + ATLAS_PADDING;
+
+function layoutLines(glyphs, styleVals) {
+  // TODO: what if splitLines returns nothing?
+  const lines = splitLines(glyphs, styleVals);
+  const box = getTextBox(lines, styleVals);
+
+  const lineHeight = styleVals["text-line-height"] * ONE_EM;
+  const lineShiftX = getLineShift(styleVals["text-justify"], box.shiftX);
+  const spacing = styleVals["text-letter-spacing"] * ONE_EM;
+  const fontScalar = styleVals["text-size"] / ONE_EM;
+
+  const chars = lines.flatMap((line, i) => {
+    const x = (box.w - line.width) * lineShiftX + box.x;
+    const y = i * lineHeight + box.y;
+    return layoutLine(line, [x, y], spacing, fontScalar);
+  });
+
+  return Object.assign(chars, { fontScalar, bbox: box.bbox });
+}
+
+function layoutLine(glyphs, origin, spacing, scalar) {
+  let xCursor = origin[0];
+  const y0 = origin[1];
+
+  return glyphs.map(g => {
+    const { left, top, advance, w, h } = g.metrics;
+
+    const dx = xCursor + left - RECT_BUFFER;
+    const dy = y0 - top - RECT_BUFFER;
+
+    xCursor += advance + spacing;
+
+    const pos = [dx, dy, w, h].map(c => c * scalar);
+    const rect = g.sdfRect;
+
+    return { pos, rect };
+  });
+}
+
+function getLineShift(justify, boxShiftX) {
+  switch (justify) {
+    case "auto":
+      return -boxShiftX;
+    case "left":
+      return 0;
+    case "right":
+      return 1;
+    case "center":
+    default:
+      return 0.5;
+  }
+}
+
+function getBuffers(chars, anchor, tileCoord, bufferVals) {
+  const origin = [...anchor, chars.fontScalar];
+  const { z, x, y } = tileCoord;
+
+  const buffers = {
+    sdfRect: chars.flatMap(c => c.rect),
+    charPos: chars.flatMap(c => c.pos),
+    labelPos: chars.flatMap(() => origin),
+    tileCoords: chars.flatMap(() => [x, y, z]),
+  };
+
+  Object.entries(bufferVals).forEach(([key, val]) => {
+    buffers[key] = chars.flatMap(() => val);
+  });
+
+  return buffers;
+}
+
+function initShaping(style) {
+  const getStyleVals = initStyle(style);
+
+  return function(feature, tileCoords, atlas, tree) {
+    // tree is an RBush from the 'rbush' module. NOTE: will be updated!
+
+    const glyphs = getGlyphInfo(feature, atlas);
+    if (!glyphs) return;
+
+    const { layoutVals, bufferVals } = getStyleVals(tileCoords.z, feature);
+    const chars = layoutLines(glyphs, layoutVals);
+
+    const [x0, y0] = feature.geometry.coordinates;
+    const bbox = chars.bbox;
+
+    const box = {
+      minX: x0 + bbox[0],
+      minY: y0 + bbox[1],
+      maxX: x0 + bbox[2],
+      maxY: y0 + bbox[3],
     };
 
-    dataFuncs.forEach(([get, key]) => {
-      const val = get(null, feature);
-      buffers[key] = Array.from({ length }).flatMap(() => val);
-    });
+    if (tree.collides(box)) return;
+    tree.insert(box);
 
-    return buffers;
+    // TODO: drop if outside tile?
+    return getBuffers(chars, [x0, y0], tileCoords, bufferVals);
   };
 }
 
+const circleInfo = {
+  styleKeys: ["circle-radius", "circle-color", "circle-opacity"],
+  serialize: flattenPoints,
+  getLength: (buffers) => buffers.circlePos.length / 2,
+};
+
 function flattenPoints(geometry) {
   const { type, coordinates } = geometry;
+  if (!coordinates || !coordinates.length) return;
 
   switch (type) {
     case "Point":
-      return coordinates;
+      return ({ circlePos: coordinates });
     case "MultiPoint":
-      return coordinates.flat();
+      return ({ circlePos: coordinates.flat() });
     default:
       return;
   }
 }
 
-function initLineParsing(style) {
-  const { paint } = style;
-
-  // TODO: check for property-dependence of lineWidth, lineGapWidth
-  const styleKeys = ["line-color", "line-opacity"];
-  const dataFuncs = styleKeys.filter(k => paint[k].type === "property")
-    .map(k => ([paint[k], camelCase$1(k)]));
-
-  return function(feature, { z, x, y }) {
-    const lines = flattenLines(feature.geometry);
-    if (!lines) return;
-
-    const length = lines.length / 3;
-
-    const buffers = {
-      lines,
-      tileCoords: Array.from({ length }).flatMap(() => [x, y, z]),
-    };
-
-    dataFuncs.forEach(([get, key]) => {
-      const val = get(null, feature);
-      buffers[key] = Array.from({ length }).flatMap(() => val);
-    });
-
-    return buffers;
-  };
-}
+const lineInfo = {
+  styleKeys: ["line-color", "line-opacity"], // TODO: line-width, line-gap-width
+  serialize: flattenLines,
+  getLength: (buffers) => buffers.lines.length / 3,
+};
 
 function flattenLines(geometry) {
   const { type, coordinates } = geometry;
+  if (!coordinates || !coordinates.length) return;
 
   switch (type) {
     case "LineString":
-      return flattenLineString(coordinates);
+      return ({ lines: flattenLineString(coordinates) });
     case "MultiLineString":
-      return coordinates.flatMap(flattenLineString);
+      return ({ lines: coordinates.flatMap(flattenLineString) });
     case "Polygon":
-      return flattenPolygon(coordinates);
+      return ({ lines: flattenPolygon(coordinates) });
     case "MultiPolygon":
-      return coordinates.flatMap(flattenPolygon);
+      return ({ lines: coordinates.flatMap(flattenPolygon) });
     default:
       return;
   }
@@ -6125,44 +6494,23 @@ earcut.flatten = function (data) {
 
 var earcut$1 = earcut$2.exports;
 
-function initFillParsing(style) {
-  const { paint } = style;
-
-  const styleKeys = ["fill-color", "fill-opacity"];
-  const dataFuncs = styleKeys.filter(k => paint[k].type === "property")
-    .map(k => ([paint[k], camelCase$1(k)]));
-
-  return function(feature, { z, x, y }) {
-    const triangles = triangulate(feature.geometry);
-    if (!triangles) return;
-
-    const length = triangles.vertices.length / 2;
-
-    const buffers = {
-      position: triangles.vertices,
-      indices: triangles.indices,
-      tileCoords: Array.from({ length }).flatMap(() => [x, y, z]),
-    };
-
-    dataFuncs.forEach(([get, key]) => {
-      const val = get(null, feature);
-      buffers[key] = Array.from({ length }).flatMap(() => val);
-    });
-
-    return buffers;
-  };
-}
+const fillInfo = {
+  styleKeys: ["fill-color", "fill-opacity"],
+  serialize: triangulate,
+  getLength: (buffers) => buffers.position.length / 2,
+};
 
 function triangulate(geometry) {
   const { type, coordinates } = geometry;
+  if (!coordinates || !coordinates.length) return;
 
   switch (type) {
     case "Polygon":
       return indexPolygon(coordinates);
     case "MultiPolygon":
       return coordinates.map(indexPolygon).reduce((acc, cur) => {
-        const indexShift = acc.vertices.length / 2;
-        acc.vertices.push(...cur.vertices);
+        const indexShift = acc.position.length / 2;
+        acc.position.push(...cur.position);
         acc.indices.push(...cur.indices.map(h => h + indexShift));
         return acc;
       });
@@ -6174,371 +6522,49 @@ function triangulate(geometry) {
 function indexPolygon(coords) {
   const { vertices, holes, dimensions } = earcut$1.flatten(coords);
   const indices = earcut$1(vertices, holes, dimensions);
-  return { vertices, indices };
-}
-
-const GLYPH_PBF_BORDER = 3;
-const ONE_EM = 24;
-
-const ATLAS_PADDING = 1;
-
-const RECT_BUFFER = GLYPH_PBF_BORDER + ATLAS_PADDING;
-
-function layoutLine(glyphs, origin, spacing, scalar) {
-  let xCursor = origin[0];
-  const y0 = origin[1];
-
-  return glyphs.flatMap(g => {
-    const { left, top, advance } = g.metrics;
-    const { w, h } = g.rect;
-
-    const dx = xCursor + left - RECT_BUFFER;
-    const dy = y0 - top - RECT_BUFFER;
-
-    xCursor += advance + spacing;
-
-    return [dx, dy, w, h].map(c => c * scalar);
-  });
-}
-
-function getGlyphInfo(feature, atlas) {
-  const { font, charCodes } = feature;
-  const positions = atlas.positions[font];
-
-  if (!positions || !charCodes || !charCodes.length) return;
-
-  const info = feature.charCodes.map(code => {
-    const pos = positions[code];
-    if (!pos) return;
-    const { metrics, rect } = pos;
-    return { code, metrics, rect };
-  });
-
-  return info.filter(i => i !== undefined);
-}
-
-function getTextBoxShift(anchor) {
-  // Shift the top-left corner of the text bounding box
-  // by the returned value * bounding box dimensions
-  switch (anchor) {
-    case "top-left":
-      return [0.0, 0.0];
-    case "top-right":
-      return [-1.0, 0.0];
-    case "top":
-      return [-0.5, 0.0];
-    case "bottom-left":
-      return [0.0, -1.0];
-    case "bottom-right":
-      return [-1.0, -1.0];
-    case "bottom":
-      return [-0.5, -1.0];
-    case "left":
-      return [0.0, -0.5];
-    case "right":
-      return [-1.0, -0.5];
-    case "center":
-    default:
-      return [-0.5, -0.5];
-  }
-}
-
-function getLineShift(justify, boxShiftX) {
-  // Shift the start of the text line (left side) by the
-  // returned value * (boundingBoxWidth - lineWidth)
-  switch (justify) {
-    case "auto":
-      return -boxShiftX;
-    case "left":
-      return 0;
-    case "right":
-      return 1;
-    case "center":
-    default:
-      return 0.5;
-  }
-}
-
-const whitespace = {
-  // From maplibre-gl-js/src/symbol/shaping.js
-  [0x09]: true, // tab
-  [0x0a]: true, // newline
-  [0x0b]: true, // vertical tab
-  [0x0c]: true, // form feed
-  [0x0d]: true, // carriage return
-  [0x20]: true, // space
-};
-
-const breakable = {
-  // From maplibre-gl-js/src/symbol/shaping.js
-  [0x0a]: true, // newline
-  [0x20]: true, // space
-  [0x26]: true, // ampersand
-  [0x28]: true, // left parenthesis
-  [0x29]: true, // right parenthesis
-  [0x2b]: true, // plus sign
-  [0x2d]: true, // hyphen-minus
-  [0x2f]: true, // solidus
-  [0xad]: true, // soft hyphen
-  [0xb7]: true, // middle dot
-  [0x200b]: true, // zero-width space
-  [0x2010]: true, // hyphen
-  [0x2013]: true, // en dash
-  [0x2027]: true  // interpunct
-};
-
-function getBreakPoints(glyphs, spacing, targetWidth) {
-  const potentialLineBreaks = [];
-  const last = glyphs.length - 1;
-  let cursor = 0;
-
-  glyphs.forEach((g, i) => {
-    const { code, metrics: { advance } } = g;
-    if (!whitespace[code]) cursor += advance + spacing;
-
-    if (i == last) return;
-    // if (!breakable[code]&& !charAllowsIdeographicBreaking(code)) return;
-    if (!breakable[code]) return;
-
-    const breakInfo = evaluateBreak(
-      i + 1,
-      cursor,
-      targetWidth,
-      potentialLineBreaks,
-      calculatePenalty(code, glyphs[i + 1].code),
-      false
-    );
-    potentialLineBreaks.push(breakInfo);
-  });
-
-  const lastBreak = evaluateBreak(
-    glyphs.length,
-    cursor,
-    targetWidth,
-    potentialLineBreaks,
-    0,
-    true
-  );
-
-  return leastBadBreaks(lastBreak);
-}
-
-function leastBadBreaks(lastBreak) {
-  if (!lastBreak) return [];
-  return leastBadBreaks(lastBreak.priorBreak).concat(lastBreak.index);
-}
-
-function evaluateBreak(index, x, targetWidth, breaks, penalty, isLastBreak) {
-  // Start by assuming the supplied (index, x) is the first break
-  const init = {
-    index, x,
-    priorBreak: null,
-    badness: calculateBadness(x)
-  };
-
-  // Now consider all previous possible break points, and
-  // return the pair corresponding to the best combination of breaks
-  return breaks.reduce((best, prev) => {
-    const badness = calculateBadness(x - prev.x) + prev.badness;
-    if (badness < best.badness) {
-      best.priorBreak = prev;
-      best.badness = badness;
-    }
-    return best;
-  }, init);
-
-  function calculateBadness(width) {
-    const raggedness = (width - targetWidth) ** 2;
-
-    if (!isLastBreak) return raggedness + Math.abs(penalty) * penalty;
-
-    // Last line: prefer shorter than average
-    return (width < targetWidth)
-      ? raggedness / 2
-      : raggedness * 2;
-  }
-}
-
-function calculatePenalty(code, nextCode) {
-  let penalty = 0;
-  // Force break on newline
-  if (code === 0x0a) penalty -= 10000;
-  // Penalize open parenthesis at end of line
-  if (code === 0x28 || code === 0xff08) penalty += 50;
-  // Penalize close parenthesis at beginning of line
-  if (nextCode === 0x29 || nextCode === 0xff09) penalty += 50;
-
-  return penalty;
-}
-
-function splitLines(glyphs, spacing, maxWidth) {
-  // glyphs is an Array of Objects with properties { code, metrics, rect }
-  // spacing and maxWidth should already be scaled to the same units as
-  //   glyph.metrics.advance
-  const totalWidth = measureLine(glyphs, spacing);
-
-  const lineCount = Math.ceil(totalWidth / maxWidth);
-  if (lineCount < 1) return [];
-
-  const targetWidth = totalWidth / lineCount;
-  const breakPoints = getBreakPoints(glyphs, spacing, targetWidth);
-
-  return breakLines(glyphs, breakPoints);
-}
-
-function measureLine(glyphs, spacing) {
-  if (glyphs.length < 1) return 0;
-
-  // No initial value for reduce--so no spacing added for 1st char
-  return glyphs.map(g => g.metrics.advance)
-    .reduce((a, c) => a + c + spacing);
-}
-
-function breakLines(glyphs, breakPoints) {
-  let start = 0;
-
-  return breakPoints.map(lineBreak => {
-    const line = glyphs.slice(start, lineBreak);
-
-    // Trim whitespace from both ends
-    while (line.length && whitespace[line[0].code]) line.shift();
-    while (trailingWhiteSpace(line)) line.pop();
-
-    start = lineBreak;
-    return line;
-  });
-}
-
-function trailingWhiteSpace(line) {
-  const len = line.length;
-  if (!len) return false;
-  return whitespace[line[len - 1].code];
-}
-
-function initShaper(layout) {
-  return function(feature, zoom, atlas) {
-    // For each feature, compute a list of info for each character:
-    // - x0, y0  defining overall label position
-    // - dx, dy  delta positions relative to label position
-    // - x, y, w, h  defining the position of the glyph within the atlas
-
-    // 1. Get the glyphs for the characters
-    const glyphs = getGlyphInfo(feature, atlas);
-    if (!glyphs) return;
-
-    // 2. Split into lines
-    const spacing = layout["text-letter-spacing"](zoom, feature) * ONE_EM;
-    const maxWidth = layout["text-max-width"](zoom, feature) * ONE_EM;
-    const lines = splitLines(glyphs, spacing, maxWidth);
-    // TODO: What if no labelText, or it is all whitespace?
-
-    // 3. Get dimensions of lines and overall text box
-    const lineWidths = lines.map(line => measureLine(line, spacing));
-    const lineHeight = layout["text-line-height"](zoom, feature) * ONE_EM;
-
-    const boxSize = [Math.max(...lineWidths), lines.length * lineHeight];
-    const textOffset = layout["text-offset"](zoom, feature)
-      .map(c => c * ONE_EM);
-    const boxShift = getTextBoxShift( layout["text-anchor"](zoom, feature) );
-    const boxOrigin = boxShift.map((c, i) => c * boxSize[i] + textOffset[i]);
-
-    // 4. Compute origins for each line
-    const justify = layout["text-justify"](zoom, feature);
-    const lineShiftX = getLineShift(justify, boxShift[0]);
-    const lineOrigins = lineWidths.map((lineWidth, i) => {
-      const x = (boxSize[0] - lineWidth) * lineShiftX + boxOrigin[0];
-      const y = i * lineHeight + boxOrigin[1];
-      return [x, y];
-    });
-
-    // 5. Compute top left corners of the glyphs in each line,
-    //    appending the font size scalar for final positioning
-    const scalar = layout["text-size"](zoom, feature) / ONE_EM;
-    const charPos = lines
-      .flatMap((l, i) => layoutLine(l, lineOrigins[i], spacing, scalar));
-
-    // 6. Fill in label origins for each glyph. TODO: assumes Point geometry
-    const origin = [...feature.geometry.coordinates, scalar];
-    const labelPos = lines.flat()
-      .flatMap(() => origin);
-
-    // 7. Collect all the glyph rects, normalizing by atlas dimensions
-    const { width, height } = atlas.image;
-    const sdfRect = lines.flat().flatMap(g => {
-      const { x, y, w, h } = g.rect;
-      return [x / width, y / height, w / width, h / height];
-    });
-
-    // 8. Compute bounding box for collision checks
-    const textPadding = layout["text-padding"](zoom, feature);
-    const bbox = [
-      boxOrigin[0] * scalar - textPadding,
-      boxOrigin[1] * scalar - textPadding,
-      (boxOrigin[0] + boxSize[0]) * scalar + textPadding,
-      (boxOrigin[1] + boxSize[1]) * scalar + textPadding
-    ];
-
-    return { labelPos, charPos, sdfRect, bbox };
-  };
-}
-
-function initShaping(style) {
-  const { layout, paint } = style;
-
-  const shaper = initShaper(layout);
-
-  const styleKeys = ["text-color", "text-opacity"];
-  const dataFuncs = styleKeys.filter(k => paint[k].type === "property")
-    .map(k => ([paint[k], camelCase(k)]));
-
-  return function(feature, tileCoords, atlas, tree) {
-    // tree is an RBush from the 'rbush' module. NOTE: will be updated!
-
-    const { z, x, y } = tileCoords;
-    const buffers = shaper(feature, z, atlas);
-    if (!buffers) return;
-
-    const { labelPos: [x0, y0], bbox } = buffers;
-    const box = {
-      minX: x0 + bbox[0],
-      minY: y0 + bbox[1],
-      maxX: x0 + bbox[2],
-      maxY: y0 + bbox[3],
-    };
-
-    if (tree.collides(box)) return;
-    tree.insert(box);
-
-    const length = buffers.labelPos.length / 2;
-    buffers.tileCoords = Array.from({ length }).flatMap(() => [x, y, z]);
-
-    dataFuncs.forEach(([get, key]) => {
-      const val = get(null, feature);
-      buffers[key] = Array.from({ length }).flatMap(() => val);
-    });
-
-    // TODO: drop if outside tile?
-    return buffers;
-  };
+  return { position: vertices, indices };
 }
 
 function camelCase(hyphenated) {
   return hyphenated.replace(/-([a-z])/gi, (h, c) => c.toUpperCase());
 }
 
-function initSerializer(style) {
-  switch (style.type) {
+function initFeatureSerializer(style) {
+  const { type, paint } = style;
+
+  switch (type) {
     case "circle":
-      return initCircleParsing(style);
+      return initParsing(paint, circleInfo);
     case "line":
-      return initLineParsing(style);
+      return initParsing(paint, lineInfo);
     case "fill":
-      return initFillParsing(style);
+      return initParsing(paint, fillInfo);
     case "symbol":
       return initShaping(style);
     default:
       throw Error("tile-gl: unknown serializer type!");
   }
+}
+
+function initParsing(paint, info) {
+  const { styleKeys, serialize, getLength } = info;
+  const dataFuncs = styleKeys.filter(k => paint[k].type === "property")
+    .map(k => ([paint[k], camelCase(k)]));
+
+  return function(feature, { z, x, y }) {
+    const buffers = serialize(feature.geometry);
+    if (!buffers) return;
+
+    const dummy = Array.from({ length: getLength(buffers) });
+
+    buffers.tileCoords = dummy.flatMap(() => [x, y, z]);
+    dataFuncs.forEach(([get, key]) => {
+      const val = get(null, feature);
+      buffers[key] = dummy.flatMap(() => val);
+    });
+
+    return buffers;
+  };
 }
 
 function concatBuffers(features) {
@@ -6570,6 +6596,33 @@ function appendBuffers(buffers, newBuffers) {
     const base = buffers[k];
     appendix[k].forEach(a => base.push(a));
   });
+}
+
+function initLayerSerializer(style) {
+  const { id, type, interactive } = style;
+
+  const transform = initFeatureSerializer(style);
+  if (!transform) return;
+
+  return function(layer, tileCoords, atlas, tree) {
+    const { extent, features } = layer;
+
+    const transformed = features.map(feature => {
+      const { properties, geometry } = feature;
+      const buffers = transform(feature, tileCoords, atlas, tree);
+      // If no buffers, skip entire feature (it won't be rendered)
+      if (buffers) return { properties, geometry, buffers };
+    }).filter(f => f !== undefined);
+
+    if (!transformed.length) return;
+
+    const newLayer = { type, extent, buffers: concatBuffers(transformed) };
+
+    if (interactive) newLayer.features = transformed
+      .map(({ properties, geometry }) => ({ properties, geometry }));
+
+    return { [id]: newLayer };
+  };
 }
 
 function quickselect(arr, k, left, right, compare) {
@@ -7137,7 +7190,37 @@ function multiSelect(arr, left, right, n, compare) {
     }
 }
 
-function initBufferConstructors(styles) {
+function initSerializer(userParams) {
+  const { glyphEndpoint, layers } = setParams(userParams);
+  const parsedStyles = layers.map(getStyleFuncs);
+
+  const getAtlas = initAtlasGetter({ parsedStyles, glyphEndpoint });
+  const process = initTileSerializer(parsedStyles);
+
+  return function(source, tileCoords) {
+    return getAtlas(source, tileCoords.z).then(atlas => {
+      const layers = process(source, tileCoords, atlas);
+
+      // Note: atlas.data.buffer is a Transferable
+      return { atlas: atlas.image, layers };
+    });
+  };
+}
+
+function setParams({ glyphs, layers }) {
+  if (!layers || !layers.length) fail("no valid array of style layers");
+
+  const glyphsOK = ["string", "undefined"].includes(typeof glyphs);
+  if (!glyphsOK) fail("glyphs must be a string URL");
+
+  return { glyphEndpoint: glyphs, layers };
+}
+
+function fail(message) {
+  throw Error("tile-gl initSerializer: " + message);
+}
+
+function initTileSerializer(styles) {
   const layerSerializers = styles
     .reduce((d, s) => (d[s.id] = initLayerSerializer(s), d), {});
 
@@ -7155,87 +7238,40 @@ function initBufferConstructors(styles) {
   };
 }
 
-function initLayerSerializer(style) {
-  const { id, interactive } = style;
+function initTileFunctions({ source, glyphs, layers }) {
+  const defaultID = layers[0].id;
+  const load = init$1({ source, defaultID });
 
-  const transform = initSerializer(style);
+  const mixer = init({ layers });
+  const serializer = initSerializer({ glyphs, layers });
 
-  if (!transform) return;
+  function process(id, result, tileCoords) {
+    const data = mixer(result, tileCoords.z);
+    return serializer(data, tileCoords)
+      .then(tile => getTransferables(id, tile));
+  }
 
-  return function(layer, tileCoords, atlas, tree) {
-    const { type, extent, features } = layer;
+  function getTransferables(id, tile) {
+    const transferables = Object.values(tile.layers)
+      .flatMap(l => Object.values(l.buffers).map(b => b.buffer));
+    transferables.push(tile.atlas.data.buffer);
 
-    const transformed = features.map(feature => {
-      const { properties, geometry } = feature;
-      const buffers = transform(feature, tileCoords, atlas, tree);
-      // NOTE: if no buffers, we don't even want to keep the original
-      // feature--because it won't be visible to the user (not rendered)
-      if (buffers) return { properties, geometry, buffers };
-    }).filter(f => f !== undefined);
+    return { id, tile, transferables };
+  }
 
-    if (!transformed.length) return;
-
-    const newLayer = { type, extent, buffers: concatBuffers(transformed) };
-
-    if (interactive) newLayer.features = transformed
-      .map(({ properties, geometry }) => ({ properties, geometry }));
-
-    return { [id]: newLayer };
-  };
-}
-
-function init(userParams) {
-  const { glyphEndpoint, styles } = setParams(userParams);
-  const parsedStyles = styles.map(getStyleFuncs);
-
-  const sourceFilter = initSourceFilter(parsedStyles);
-  const getAtlas = initAtlasGetter({ parsedStyles, glyphEndpoint });
-  const process = initBufferConstructors(parsedStyles);
-
-  return function(source, tileCoords) {
-    const rawLayers = sourceFilter(source, tileCoords.z);
-
-    return getAtlas(rawLayers, tileCoords.z).then(atlas => {
-      const layers = process(rawLayers, tileCoords, atlas);
-
-      // Note: atlas.data.buffer is a Transferable
-      return { atlas: atlas.image, layers };
-    });
-  };
-}
-
-const vectorTypes = ["symbol", "circle", "line", "fill"];
-
-function setParams(userParams) {
-  const { glyphs, layers } = userParams;
-
-  // Confirm supplied styles are all vector layers reading from the same source
-  if (!layers || !layers.length) fail("no valid array of style layers");
-
-  const allVectors = layers.every(l => vectorTypes.includes(l.type));
-  if (!allVectors) fail("not all layers are vector types");
-
-  const sameSource = layers.every(l => l.source === layers[0].source);
-  if (!sameSource) fail("supplied layers use different sources");
-
-  // TODO: check typeof glyphs. Should be a string, but what if undefined?
-
-  return { glyphEndpoint: glyphs, styles: layers };
-}
-
-function fail(message) {
-  throw Error("ERROR in tile-mixer: " + message);
+  return { load, process };
 }
 
 const tasks = {};
-let loader, processor;
+let tileFuncs;
 
 onmessage = function(msgEvent) {
   const { id, type, payload } = msgEvent.data;
 
   switch (type) {
     case "setup":
-      return setup(payload);
+      tileFuncs = initTileFunctions(payload);
+      return;
     case "getTile":
       return getTile(payload, id);
     case "cancel":
@@ -7243,17 +7279,9 @@ onmessage = function(msgEvent) {
   }
 };
 
-function setup(payload) {
-  const { source, glyphs, layers } = payload;
-  // NOTE: changing global variables!
-  const defaultID = layers[0].id;
-  loader = init$1({ source, defaultID });
-  processor = init({ glyphs, layers });
-}
-
 function getTile(payload, id) {
   const callback = (err, result) => process(id, err, result, payload);
-  const request = loader(payload, callback);
+  const request = tileFuncs.load(payload, callback);
   tasks[id] = { request, status: "requested" };
 }
 
@@ -7264,7 +7292,6 @@ function cancel(id) {
 }
 
 function process(id, err, result, tileCoords) {
-  // Make sure we still have an active task for this ID
   const task = tasks[id];
   if (!task) return;  // Task must have been canceled
 
@@ -7274,20 +7301,15 @@ function process(id, err, result, tileCoords) {
   }
 
   task.status = "parsing";
-  return processor(result, tileCoords).then(tile => sendTile(id, tile));
+  return tileFuncs.process(id, result, tileCoords).then(sendTile);
 }
 
-function sendTile(id, tile) {
-  // Make sure we still have an active task for this ID
+function sendTile({ id, tile, transferables }) {
   const task = tasks[id];
   if (!task) return; // Task must have been canceled
 
-  // Get a list of all the Transferable objects
-  const transferables = Object.values(tile.layers)
-    .flatMap(l => Object.values(l.buffers).map(b => b.buffer));
-  transferables.push(tile.atlas.data.buffer);
-
   postMessage({ id, type: "data", payload: tile }, transferables);
+  delete tasks[id];
 }
 `;
 
@@ -7322,8 +7344,7 @@ function init$2(userParams) {
   function getPrepFuncs(source, callback) {
     const { atlas, layers } = source;
 
-    const prepTasks = Object.values(layers)
-      .map(l => () => { l.buffers = loadBuffers(l.buffers); });
+    const prepTasks = Object.values(layers).map(l => () => loadBuffers(l));
 
     if (atlas) prepTasks.push(() => { source.atlas = loadAtlas(atlas); });
 
