@@ -484,7 +484,7 @@ function initFill() {
 }
 
 var vert = `attribute vec2 quadPos;  // Vertices of the quad instance
-attribute vec3 labelPos; // x, y, font size scalar
+attribute vec4 labelPos; // x, y, angle, font size scalar
 attribute vec4 charPos;  // dx, dy (relative to labelPos), w, h
 attribute vec4 sdfRect;  // x, y, w, h
 attribute vec4 textColor;
@@ -495,7 +495,7 @@ varying vec2 texCoord;
 varying vec4 fillStyle;
 
 void main() {
-  taperWidth = labelPos.z * screenScale.z;
+  taperWidth = labelPos.w * screenScale.z;
   texCoord = sdfRect.xy + sdfRect.zw * quadPos;
   fillStyle = textColor * textOpacity;
 
@@ -504,7 +504,12 @@ void main() {
   // Shift to the appropriate corner of the current instance quad
   vec2 dPos = (charPos.xy + charPos.zw * quadPos) * styleScale(labelPos.xy);
 
-  gl_Position = mapToClip(mapPos + dPos, 0.0);
+  float cos_a = cos(labelPos.z);
+  float sin_a = sin(labelPos.z);
+  float dx = dPos.x * cos_a - dPos.y * sin_a;
+  float dy = dPos.x * sin_a + dPos.y * cos_a;
+
+  gl_Position = mapToClip(mapPos + vec2(dx, dy), 0.0);
 }
 `;
 
@@ -527,7 +532,7 @@ void main() {
 
 function initText(context) {
   const attrInfo = {
-    labelPos: { numComponents: 3 },
+    labelPos: { numComponents: 4 },
     charPos: { numComponents: 4 },
     sdfRect: { numComponents: 4 },
     tileCoords: { numComponents: 3 },
@@ -542,7 +547,7 @@ function initText(context) {
   return {
     vert, frag, attrInfo, styleKeys,
     getSpecialAttrs: () => ({ quadPos }),
-    countInstances: (buffers) => buffers.labelPos.length / 3,
+    countInstances: (buffers) => buffers.labelPos.length / 4,
   };
 }
 
@@ -4177,12 +4182,11 @@ function initFeatureValGetter(key) {
 }
 
 function initLayerFilter(style) {
-  const { id, type: styleType, filter,
-    minzoom = 0, maxzoom = 99,
+  const { id, filter, minzoom = 0, maxzoom = 99,
     "source-layer": sourceLayer,
   } = style;
 
-  const filterObject = composeFilters(getGeomFilter(styleType), filter);
+  const filterObject = composeFilters(getGeomFilter(style), filter);
   const parsedFilter = buildFeatureFilter(filterObject);
 
   return function(source, zoom) {
@@ -4204,16 +4208,14 @@ function composeFilters(filter1, filter2) {
   return ["all", filter1, filter2];
 }
 
-function getGeomFilter(type) {
-  switch (type) {
+function getGeomFilter(style) {
+  switch (style.type) {
     case "circle":
       return ["==", "$type", "Point"];
     case "line":
       return ["!=", "$type", "Point"]; // Could be LineString or Polygon
     case "fill":
       return ["==", "$type", "Polygon"];
-    case "symbol":
-      return ["==", "$type", "Point"]; // TODO: implement line geom labels
     default:
       return; // No condition on geometry
   }
@@ -5386,6 +5388,8 @@ function initStyle({ layout, paint }) {
     "text-anchor",
     "text-offset",
     "text-justify",
+    "symbol-placement",
+    "symbol-spacing",
   ];
 
   const paintKeys = [
@@ -5693,6 +5697,223 @@ function getLineShift(justify, boxShiftX) {
   }
 }
 
+const { min, max: max$2, cos: cos$1, sin: sin$1 } = Math;
+
+function pointCollision(chars, anchor, tree) {
+  const [x0, y0] = anchor;
+  const box = formatBox(x0, y0, chars.bbox);
+
+  if (tree.collides(box)) return true;
+  // TODO: drop if outside tile?
+  tree.insert(box);
+}
+
+function formatBox(x0, y0, bbox) {
+  return {
+    minX: x0 + bbox[0],
+    minY: y0 + bbox[1],
+    maxX: x0 + bbox[2],
+    maxY: y0 + bbox[3],
+  };
+}
+
+function lineCollision(chars, anchor, tree) {
+  const [x0, y0, angle] = anchor;
+
+  const cos_a = cos$1(angle);
+  const sin_a = sin$1(angle);
+  const rotate = ([x, y]) => [x * cos_a - y * sin_a, x * sin_a + y * cos_a];
+
+  const boxes = chars.map(c => getCharBbox(c.pos, rotate))
+    .map(bbox => formatBox(x0, y0, bbox));
+
+  if (boxes.some(tree.collides, tree)) return true;
+  boxes.forEach(tree.insert, tree);
+}
+
+function getCharBbox([x, y, w, h], rotate) {
+  const corners = [
+    [x, y], [x + w, y],
+    [x, y + h], [x + w, y + h]
+  ].map(rotate);
+  const xvals = corners.map(c => c[0]);
+  const yvals = corners.map(c => c[1]);
+
+  return [min(...xvals), min(...yvals), max$2(...xvals), max$2(...yvals)];
+}
+
+function getLabelSegments(line, offset, spacing, labelLength, charSize) {
+  const points = addDistances(line);
+  const lineLength = points[points.length - 1].dist;
+  const numLabels = Math.floor((lineLength - offset) / spacing) + 1;
+
+  // How many points for each label? One per character width.
+  // if (labelLength < charSize / 2) nS = 1;
+  const nS = Math.round(labelLength / charSize) + 1;
+  const dS = labelLength / nS;
+  const halfLen = (nS - 1) * dS / 2;
+
+  return Array.from({ length: numLabels })
+    .map((v, i) => offset + i * spacing - halfLen)
+    .map(s0 => getSegment(s0, dS, nS, points))
+    .filter(segment => segment !== undefined);
+}
+
+function addDistances(line) {
+  let cumulative = 0.0;
+  const distances = line.slice(1).map((c, i) => {
+    cumulative += dist(line[i], c);
+    return { coord: c, dist: cumulative };
+  });
+  distances.unshift({ coord: line[0], dist: 0.0 });
+  return distances;
+}
+
+function dist([x0, y0], [x1, y1]) {
+  return Math.hypot(x1 - x0, y1 - y0);
+}
+
+function getSegment(s0, dS, nS, points) {
+  const len = (nS - 1) * dS;
+  const i0 = points.findIndex(p => p.dist > s0);
+  const i1 = points.findIndex(p => p.dist > s0 + len);
+  if (i0 < 0 || i1 < 0) return;
+
+  const segment = points.slice(i0 - 1, i1 + 1);
+
+  return Array.from({ length: nS }, (v, n) => {
+    const s = s0 + n * dS;
+    const i = segment.findIndex(p => p.dist > s);
+    return interpolate(s, segment.slice(i - 1, i + 1));
+  });
+}
+
+function interpolate(dist, points) {
+  const [d0, d1] = points.map(p => p.dist);
+  const t = (dist - d0) / (d1 - d0);
+  const [p0, p1] = points.map(p => p.coord);
+  const coord = p0.map((c, i) => c + t * (p1[i] - c));
+  return { coord, dist };
+}
+
+const { max: max$1, abs, cos, sin, atan2 } = Math;
+
+function fitLine(points) {
+  if (points.length < 2) {
+    return { anchor: points[0].coord, angle: 0.0, error: 0.0 };
+  }
+
+  // Fit X and Y coordinates as a function of chord distance
+  const xFit = linearFit(points.map(p => [p.dist, p.coord[0]]));
+  const yFit = linearFit(points.map(p => [p.dist, p.coord[1]]));
+
+  // Transform to a single anchor point and rotation angle
+  const anchor = [xFit.mean, yFit.mean];
+  const angle = (xFit.slope < 0)
+    ? atan2(-yFit.slope, -xFit.slope)
+    : atan2(yFit.slope, xFit.slope);
+
+  // Compute an error metric: shift and rotate, find largest abs(y)
+  const transform = setupTransform(anchor, angle);
+  const error = points.map(p => abs(transform(p.coord)[1]))
+    .reduce((maxErr, c) => max$1(maxErr, c));
+
+  return { anchor, angle, error };
+}
+
+function linearFit(coords) {
+  const n = coords.length;
+  if (n < 1) return;
+
+  const x_avg = coords.map(c => c[0]).reduce((a, c) => a + c, 0) / n;
+  const y_avg = coords.map(c => c[1]).reduce((a, c) => a + c, 0) / n;
+
+  const ss_xx = coords.map(([x]) => x * x)
+    .reduce((a, c) => a + c) - n * x_avg * x_avg;
+  const ss_xy = coords.map(([x, y]) => x * y)
+    .reduce((a, c) => a + c) - n * x_avg * y_avg;
+
+  const slope = ss_xy / ss_xx;
+  const intercept = y_avg - slope * x_avg;
+  return { slope, intercept, mean: y_avg };
+}
+
+function setupTransform([ax, ay], angle) {
+  // Note: we use negative angle to rotate the coordinates (not the points)
+  const cos_a = cos(-angle);
+  const sin_a = sin(-angle);
+
+  return function([x, y]) {
+    const xT = x - ax;
+    const yT = y - ay;
+    const xR = cos_a * xT - sin_a * yT;
+    const yR = sin_a * xT + cos_a * yT;
+    return [xR, yR];
+  };
+}
+
+const { max } = Math;
+
+function placeLineAnchors(line, extent, chars, styleVals) {
+  const labelLength = chars.bbox[2] - chars.bbox[0];
+  const rawSpacing = styleVals["symbol-spacing"];
+  const spacing = max(rawSpacing, labelLength + rawSpacing / 4);
+  const fixedExtraOffset = styleVals["text-size"] * 2;
+
+  const isLineContinued = line[0].some(c => c === 0 && c === extent);
+  const offset = isLineContinued ?
+    (spacing / 2) :
+    (labelLength / 2 + fixedExtraOffset);
+
+  const charSize = styleVals["text-size"] / 2;
+  return getLabelSegments(line, offset, spacing, labelLength, charSize)
+    .map(fitLine)
+    .filter(fit => fit.error < charSize)
+    .map(({ anchor, angle }) => [...anchor, angle]);
+}
+
+function getAnchors(geometry, extent, chars, layoutVals) {
+  switch (layoutVals["symbol-placement"]) {
+    case "point":
+      return getPointAnchors(geometry);
+    case "line":
+      return getLineAnchors(geometry, extent, chars, layoutVals);
+    default:
+      return [];
+  }
+}
+
+function getPointAnchors({ type, coordinates }) {
+  switch (type) {
+    case "Point":
+      return [[...coordinates, 0.0]]; // Add angle coordinate
+    case "MultiPoint":
+      return coordinates.map(c => [...c, 0.0]);
+    default:
+      return [];
+  }
+}
+
+function getLineAnchors(geometry, extent, chars, layoutVals) {
+  const { type, coordinates } = geometry;
+
+  function mapLine(line) {
+    return placeLineAnchors(line, extent, chars, layoutVals);
+  }
+
+  switch (type) {
+    case "LineString":
+      return mapLine(coordinates);
+    case "MultiLineString":
+    case "Polygon":
+      return coordinates.flatMap(mapLine);
+    case "MultiPolygon":
+      return coordinates.flat().flatMap(mapLine);
+    default:
+      return [];
+  }
+}
+
 function getBuffers(chars, anchor, tileCoord, bufferVals) {
   const origin = [...anchor, chars.fontScalar];
   const { z, x, y } = tileCoord;
@@ -5723,22 +5944,28 @@ function initShaping(style) {
     const { layoutVals, bufferVals } = getStyleVals(tileCoords.z, feature);
     const chars = layoutLines(glyphs, layoutVals);
 
-    const [x0, y0] = feature.geometry.coordinates;
-    const bbox = chars.bbox;
+    const collides = (layoutVals["symbol-placement"] === "line")
+      ? lineCollision
+      : pointCollision;
 
-    const box = {
-      minX: x0 + bbox[0],
-      minY: y0 + bbox[1],
-      maxX: x0 + bbox[2],
-      maxY: y0 + bbox[3],
-    };
+    // TODO: get extent from tile?
+    const anchors = getAnchors(feature.geometry, 512, chars, layoutVals)
+      .filter(anchor => !collides(chars, anchor, tree));
 
-    if (tree.collides(box)) return;
-    tree.insert(box);
+    if (!anchors || !anchors.length) return;
 
-    // TODO: drop if outside tile?
-    return getBuffers(chars, [x0, y0], tileCoords, bufferVals);
+    return anchors
+      .map(anchor => getBuffers(chars, anchor, tileCoords, bufferVals))
+      .reduce(combineBuffers);
   };
+}
+
+function combineBuffers(dict, buffers) {
+  Object.keys(dict).forEach(k => {
+    const base = dict[k];
+    buffers[k].forEach(v => base.push(v));
+  });
+  return dict;
 }
 
 const circleInfo = {
