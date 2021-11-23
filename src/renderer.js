@@ -2,10 +2,12 @@ import { getStyleFuncs } from "tile-stencil";
 
 export function initRenderer(context, coords, style) {
   const { PI, cosh } = Math;
-  const { layers } = style;
+  const { layers, spriteData } = style;
+
+  const sprite = context.loadSprite(spriteData.image);
 
   const painters = layers.map(layer => {
-    const painter = context.initPainter(getStyleFuncs(layer));
+    const painter = context.initPainter(getStyleFuncs(layer), sprite);
 
     painter.visible = () => layer.visible;
     return painter;

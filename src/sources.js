@@ -2,9 +2,9 @@ import { initCaches } from "./caches.js";
 import { initTileGrid } from "./grid.js";
 
 export function initSources(style, context, coords) {
-  const { glyphs, sources: sourceDescriptions, layers } = style;
+  const { sources: sourceDescriptions, glyphs, spriteData, layers } = style;
 
-  const caches = initCaches({ context, glyphs });
+  const caches = initCaches({ context, glyphs, spriteData });
   const tilesets = {};
   const layerSources = layers.reduce((d, l) => (d[l.id] = l.source, d), {});
 

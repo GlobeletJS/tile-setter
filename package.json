@@ -44,9 +44,9 @@
   "dependencies": {
     "chunked-queue": "^0.1.4",
     "d3-tile": "github:GlobeletJS/d3-tile",
-    "tile-gl": "^0.3.2",
+    "tile-gl": "^0.4.1",
     "tile-rack": "^1.0.4",
     "tile-stencil": "^0.4.4",
-    "tile-worker": "^0.0.5"
+    "tile-worker": "^0.1.0"
   }
 }

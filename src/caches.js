@@ -2,7 +2,7 @@ import * as chunkedQueue from "chunked-queue";
 import * as tileWorker from "tile-worker";
 import { initCache } from "tile-rack";
 
-export function initCaches({ context, glyphs }) {
+export function initCaches({ context, glyphs, spriteData }) {
   const queue = chunkedQueue.init();
 
   function addSource({ source, layers }) {
@@ -16,7 +16,7 @@ export function initCaches({ context, glyphs }) {
       case "vector":
       case "geojson":
         return tileWorker.init({
-          context, queue, glyphs, source, layers,
+          context, queue, source, glyphs, spriteData, layers,
           threads: (source.type === "geojson") ? 1 : 2,
         });
       case "raster":
