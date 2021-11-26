@@ -4,7 +4,7 @@ export function initRenderer(context, coords, style) {
   const { PI, cosh } = Math;
   const { layers, spriteData } = style;
 
-  const sprite = context.loadSprite(spriteData.image);
+  const sprite = context.loadSprite(spriteData?.image);
 
   const painters = layers.map(layer => {
     const painter = context.initPainter(getStyleFuncs(layer), sprite);

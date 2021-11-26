@@ -283,11 +283,12 @@ function initCircle(context) {
 var vert$3 = `attribute vec2 quadPos;
 attribute vec3 pointA, pointB, pointC, pointD;
 attribute vec4 lineColor;
-attribute float lineOpacity;
+attribute float lineOpacity, lineWidth, lineGapWidth;
 
-uniform float lineWidth, lineMiterLimit;
+uniform float lineMiterLimit;
 
 varying float yCoord;
+varying vec2 lineSize; // lineWidth, lineGapWidth
 varying vec2 miterCoord1, miterCoord2;
 varying vec4 strokeStyle;
 
@@ -334,7 +335,9 @@ void main() {
   vec2 yBasis = vec2(-xBasis.y, xBasis.x);
 
   // Get coordinate transforms for the miters
-  float pixWidth = lineWidth * screenScale.z;
+  float pixWidth = (lineGapWidth > 0.0)
+    ? (lineGapWidth + 2.0 * lineWidth) * screenScale.z
+    : lineWidth * screenScale.z;
   mat3 m1 = miterTransform(xBasis, yBasis, mapA - mapB, pixWidth);
   mat3 m2 = miterTransform(-xBasis, yBasis, mapD - mapC, pixWidth);
 
@@ -348,6 +351,7 @@ void main() {
 
   // Remove pixRatio from varying (we taper edges using unscaled value)
   yCoord = y / screenScale.z;
+  lineSize = vec2(lineWidth, lineGapWidth);
 
   // TODO: should this premultiplication be done in tile-stencil?
   //vec4 premult = vec4(color.rgb * color.a, color.a);
@@ -360,9 +364,8 @@ void main() {
 
 var frag$3 = `precision highp float;
 
-uniform float lineWidth;
-
 varying float yCoord;
+varying vec2 lineSize; // lineWidth, lineGapWidth
 varying vec2 miterCoord1, miterCoord2;
 varying vec4 strokeStyle;
 
@@ -371,10 +374,16 @@ void main() {
   vec2 step1 = fwidth(miterCoord1) * 0.707;
   vec2 step2 = fwidth(miterCoord2) * 0.707;
 
-  // Antialiasing for edges of lines
-  float outside = -0.5 * lineWidth - step0;
-  float inside = -0.5 * lineWidth + step0;
-  float antialias = smoothstep(outside, inside, -abs(yCoord));
+  // Antialiasing tapers for line edges
+  float hGap = 0.5 * lineSize.y;
+  float inner = (hGap > 0.0)
+    ? smoothstep(hGap - step0, hGap + step0, abs(yCoord))
+    : 1.0;
+  float hWidth = (hGap > 0.0)
+    ? hGap + lineSize.x
+    : 0.5 * lineSize.x;
+  float outer = smoothstep(-hWidth - step0, -hWidth + step0, -abs(yCoord));
+  float antialias = inner * outer;
 
   // Bevels, endcaps: Use smooth taper for antialiasing
   float taperx = 
@@ -397,6 +406,8 @@ function initLine(context) {
     tileCoords: { numComponents: 3 },
     lineColor: { numComponents: 4 },
     lineOpacity: { numComponents: 1 },
+    lineWidth: { numComponents: 1 },
+    lineGapWidth: { numComponents: 1 },
   };
   const quadPos = initQuad({ x0: 0.0, y0: -0.5, x1: 1.0, y1: 0.5 });
   const numComponents = 3;
@@ -430,7 +441,7 @@ function initLine(context) {
 
     // Paint properties:
     "line-color", "line-opacity",
-    "line-width", // "line-gap-width",
+    "line-width", "line-gap-width",
     // "line-translate", "line-translate-anchor",
     // "line-offset", "line-blur", "line-gradient", "line-pattern"
   ];
@@ -487,11 +498,14 @@ var vert$1 = `attribute vec2 quadPos;    // Vertices of the quad instance
 attribute vec3 labelPos0;   // x, y, angle
 attribute vec4 spritePos;  // dx, dy (relative to labelPos0), w, h
 attribute vec4 spriteRect; // x, y, w, h
+attribute float iconOpacity;
 
+varying float opacity;
 varying vec2 texCoord;
 
 void main() {
   texCoord = spriteRect.xy + spriteRect.zw * quadPos;
+  opacity = iconOpacity;
 
   vec2 mapPos = tileToMap(labelPos0.xy);
 
@@ -511,12 +525,13 @@ var frag$1 = `precision highp float;
 
 uniform sampler2D sprite;
 
+varying float opacity;
 varying vec2 texCoord;
 
 void main() {
   vec4 texColor = texture2D(sprite, texCoord);
   // Input sprite does NOT have pre-multiplied alpha
-  gl_FragColor = vec4(texColor.rgb * texColor.a, texColor.a);
+  gl_FragColor = vec4(texColor.rgb * texColor.a, texColor.a) * opacity;
 }
 `;
 
@@ -526,10 +541,11 @@ function initSprite(context) {
     spritePos: { numComponents: 4 },
     spriteRect: { numComponents: 4 },
     tileCoords: { numComponents: 3 },
+    iconOpacity: { numComponents: 1 },
   };
   const quadPos = context.initQuad({ x0: 0.0, y0: 0.0, x1: 1.0, y1: 1.0 });
 
-  const styleKeys = [];
+  const styleKeys = ["icon-opacity"];
 
   return {
     vert: vert$1, frag: frag$1, attrInfo, styleKeys,
@@ -544,15 +560,26 @@ attribute vec4 charPos;  // dx, dy (relative to labelPos), w, h
 attribute vec4 sdfRect;  // x, y, w, h
 attribute vec4 textColor;
 attribute float textOpacity;
+attribute float textHaloBlur;
+attribute vec4 textHaloColor;
+attribute float textHaloWidth;
 
-varying float taperWidth;
+varying vec4 fillColor;
+varying vec4 haloColor;
+varying vec2 haloSize; // width, blur
 varying vec2 texCoord;
-varying vec4 fillStyle;
+varying float taperWidth;
 
 void main() {
-  taperWidth = labelPos.w * screenScale.z;
   texCoord = sdfRect.xy + sdfRect.zw * quadPos;
-  fillStyle = textColor * textOpacity;
+
+  taperWidth = labelPos.w * screenScale.z;
+  haloSize = vec2(textHaloWidth, textHaloBlur) * screenScale.z;
+
+  float fillAlpha = textColor.a * textOpacity;
+  fillColor = vec4(textColor.rgb * fillAlpha, fillAlpha);
+  float haloAlpha = textHaloColor.a * textOpacity;
+  haloColor = vec4(textHaloColor.rgb * haloAlpha, haloAlpha);
 
   vec2 mapPos = tileToMap(labelPos.xy);
 
@@ -572,7 +599,9 @@ var frag = `precision highp float;
 
 uniform sampler2D sdf;
 
-varying vec4 fillStyle;
+varying vec4 fillColor;
+varying vec4 haloColor;
+varying vec2 haloSize; // width, blur
 varying vec2 texCoord;
 varying float taperWidth;
 
@@ -580,8 +609,14 @@ void main() {
   float sdfVal = texture2D(sdf, texCoord).a;
   float screenDist = taperWidth * (191.0 - 255.0 * sdfVal) / 32.0;
 
-  float alpha = smoothstep(-0.707, 0.707, -screenDist);
-  gl_FragColor = fillStyle * alpha;
+  float fillAlpha = smoothstep(-0.707, 0.707, -screenDist);
+  float hEdge = haloSize.x - haloSize.y / 2.0;
+  float hTaper = haloSize.x + haloSize.y / 2.0;
+  float haloAlpha = (haloSize.x > 0.0 || haloSize.y > 0.0)
+    ? (1.0 - fillAlpha) * smoothstep(-hTaper, -hEdge, -screenDist)
+    : 0.0;
+
+  gl_FragColor = fillColor * fillAlpha + haloColor * haloAlpha;
 }
 `;
 
@@ -593,10 +628,19 @@ function initText(context) {
     tileCoords: { numComponents: 3 },
     textColor: { numComponents: 4 },
     textOpacity: { numComponents: 1 },
+    textHaloBlur: { numComponents: 1 },
+    textHaloColor: { numComponents: 4 },
+    textHaloWidth: { numComponents: 1 },
   };
   const quadPos = context.initQuad({ x0: 0.0, y0: 0.0, x1: 1.0, y1: 1.0 });
 
-  const styleKeys = ["text-color", "text-opacity"]; // TODO: "text-halo-color"
+  const styleKeys = [
+    "text-color",
+    "text-opacity",
+    "text-halo-blur",
+    "text-halo-color",
+    "text-halo-width",
+  ];
 
   return {
     vert, frag, attrInfo, styleKeys,
@@ -864,7 +908,7 @@ function initGLpaint(userParams) {
   }
 
   function loadSprite(image) {
-    return context.initTexture({ image, mips: false });
+    if (image) return context.initTexture({ image, mips: false });
   }
 
   function initPainter(style, sprite) {
@@ -967,12 +1011,16 @@ function expandStyleURL(url, token) {
   return url.replace(prefix, apiRoot) + "?access_token=" + token;
 }
 
-function expandSpriteURLs(url, token) {
+function expandSpriteURLs(url, pixRatio, token) {
   // Returns an array containing urls to .png and .json files
+  const { min, max, floor } = Math;
+  const ratio = floor(min(max(1.0, pixRatio), 4.0));
+  const ratioStr = "@" + ratio + "x";
+
   const prefix = /^mapbox:\/\/sprites\//;
   if ( !url.match(prefix) ) return {
-    image: url + ".png",
-    meta: url + ".json",
+    image: url + ratioStr + ".png",
+    meta: url + ratioStr + ".json",
   };
 
   // We have a Mapbox custom url. Expand to an absolute URL, as per the spec
@@ -980,8 +1028,8 @@ function expandSpriteURLs(url, token) {
   url = url.replace(prefix, apiRoot) + "/sprite";
   const tokenString = "?access_token=" + token;
   return {
-    image: url + ".png" + tokenString,
-    meta: url + ".json" + tokenString,
+    image: url + ratioStr + ".png" + tokenString,
+    meta: url + ratioStr + ".json" + tokenString,
   };
 }
 
@@ -1823,7 +1871,8 @@ function expandSources(rawSources, token) {
 function loadSprite(sprite, token) {
   if (!sprite) return;
 
-  const urls = expandSpriteURLs(sprite, token);
+  const pixRatio = window?.devicePixelRatio || 1.0;
+  const urls = expandSpriteURLs(sprite, pixRatio, token);
 
   return Promise.all([getImage(urls.image), getJSON(urls.meta)])
     .then( ([image, meta]) => ({ image, meta }) )
@@ -2078,8 +2127,11 @@ function setParams(userParams) {
     source, glyphs, layers, spriteData,
   } = userParams;
 
-  if (source?.type !== "vector") fail("no valid vector tile source");
-  if (!source.tiles?.length) fail("no valid vector tile endpoint");
+  if (source?.type === "vector") {
+    if (!source.tiles.length) fail("no valid vector tile endpoint");
+  } else if (source?.type !== "geojson") {
+    fail("no valid vector or geojson source");
+  }
 
   if (!layers?.length) fail ("no valid array of style layers");
   if (!layers.every(isVector)) fail("not all layers are vector layers");
@@ -5572,14 +5624,25 @@ function initIcon(style, spriteData = {}) {
   const getStyles = initStyleGetters(iconKeys, style);
 
   return function(feature, tileCoords) {
-    const sprite = getSprite(feature, width, height, meta);
+    const sprite = getSprite(feature.spriteID);
     if (!sprite) return;
 
-    // const { layoutVals, bufferVals } = getStyles(tileCoords.z, feature);
-    const { layoutVals } = getStyles(tileCoords.z, feature);
+    const { layoutVals, bufferVals } = getStyles(tileCoords.z, feature);
     const icon = layoutSprite(sprite, layoutVals);
-    return icon; // TODO: what about bufferVals?
+    return Object.assign(icon, { bufferVals }); // TODO: rethink this
   };
+
+  function getSprite(spriteID) {
+    const rawRect = meta[spriteID];
+    if (!rawRect) return;
+
+    const { x, y, width: w, height: h, pixelRatio = 1 } = rawRect;
+    const spriteRect = [x / width, y / height, w / width, h / height];
+    const scale = 1.0 / Math.max(1.0, pixelRatio);
+    const metrics = { w: w * scale, h: h * scale };
+
+    return { spriteID, metrics, spriteRect };
+  }
 }
 
 const iconKeys = {
@@ -5590,19 +5653,10 @@ const iconKeys = {
     "icon-rotation-alignment",
     "icon-size",
   ],
-  paint: [],
+  paint: [
+    "icon-opacity",
+  ],
 };
-
-function getSprite({ spriteID }, width, height, meta) {
-  const rawRect = meta[spriteID];
-  if (!rawRect) return;
-
-  const { x, y, width: w, height: h } = rawRect;
-  const spriteRect = [x / width, y / height, w / width, h / height];
-  const metrics = { w, h };
-
-  return { spriteID, metrics, spriteRect };
-}
 
 function layoutSprite(sprite, styleVals) {
   const { metrics: { w, h }, spriteRect } = sprite;
@@ -5878,6 +5932,9 @@ const textKeys = {
   paint: [
     "text-color",
     "text-opacity",
+    "text-halo-blur",
+    "text-halo-color",
+    "text-halo-width",
   ],
 };
 
@@ -6174,6 +6231,10 @@ function getIconBuffers(icon, anchor, { z, x, y }) {
     tileCoords: [x, y, z],
   };
 
+  Object.entries(icon.bufferVals).forEach(([key, val]) => {
+    buffers[key] = val;
+  });
+
   return buffers;
 }
 
@@ -6219,13 +6280,13 @@ function initShaping(style, spriteData) {
 
     return anchors
       .map(anchor => getBuffers(icon, text, anchor, tileCoords))
-      .reduce(combineBuffers);
+      .reduce(combineBuffers, {});
   };
 }
 
 function combineBuffers(dict, buffers) {
-  Object.keys(dict).forEach(k => {
-    const base = dict[k];
+  Object.keys(buffers).forEach(k => {
+    const base = dict[k] || (dict[k] = []);
     buffers[k].forEach(v => base.push(v));
   });
   return dict;
@@ -6252,7 +6313,12 @@ function flattenPoints(geometry) {
 }
 
 const lineInfo = {
-  styleKeys: ["line-color", "line-opacity"], // TODO: line-width, line-gap-width
+  styleKeys: [
+    "line-color",
+    "line-opacity",
+    "line-width",
+    "line-gap-width",
+  ],
   serialize: flattenLines,
   getLength: (buffers) => buffers.lines.length / 3,
 };
@@ -8237,7 +8303,7 @@ function initRenderer(context, coords, style) {
   const { PI, cosh } = Math;
   const { layers, spriteData } = style;
 
-  const sprite = context.loadSprite(spriteData.image);
+  const sprite = context.loadSprite(spriteData?.image);
 
   const painters = layers.map(layer => {
     const painter = context.initPainter(getStyleFuncs(layer), sprite);
