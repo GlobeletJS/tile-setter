@@ -4,9 +4,7 @@ import * as tileMap from "../../";
 export function main() {
   const canvas = document.getElementById("mapCanvas");
   yawgl.resizeCanvasToDisplaySize(canvas, window.devicePixelRatio);
-
-  const gl = yawgl.getExtendedContext(canvas);
-  const context = yawgl.initContext(gl);
+  const context = yawgl.initContext(canvas);
 
   tileMap.init({ context, style: "./klokantech-basic-style.json" })
     .promise.then(api => setup(api, canvas))

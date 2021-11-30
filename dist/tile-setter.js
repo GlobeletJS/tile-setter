@@ -149,9 +149,11 @@ function initCoords({ getViewport, center, zoom, clampY, projection }) {
   }
 }
 
-var preamble = `precision highp float;
+var preamble = `#version 300 es
 
-attribute vec3 tileCoords;
+precision highp float;
+
+in vec3 tileCoords;
 
 uniform vec4 mapCoords;   // x, y, z, extent of tileset[0]
 uniform vec3 mapShift;    // translate and scale of tileset[0]
@@ -221,15 +223,15 @@ function setParams$2(userParams) {
   };
 }
 
-var vert$4 = `attribute vec2 quadPos; // Vertices of the quad instance
-attribute vec2 circlePos;
-attribute float circleRadius;
-attribute vec4 circleColor;
-attribute float circleOpacity;
+var vert$4 = `in vec2 quadPos; // Vertices of the quad instance
+in vec2 circlePos;
+in float circleRadius;
+in vec4 circleColor;
+in float circleOpacity;
 
-varying vec2 delta;
-varying vec4 strokeStyle;
-varying float radius;
+out vec2 delta;
+out vec4 strokeStyle;
+out float radius;
 
 void main() {
   vec2 mapPos = tileToMap(circlePos);
@@ -246,18 +248,22 @@ void main() {
 }
 `;
 
-var frag$4 = `precision mediump float;
+var frag$4 = `#version 300 es
 
-varying vec2 delta;
-varying vec4 strokeStyle;
-varying float radius;
+precision mediump float;
+
+in vec2 delta;
+in vec4 strokeStyle;
+in float radius;
+
+out vec4 pixColor;
 
 void main() {
   float r = length(delta);
   float dr = fwidth(r);
 
   float taper = 1.0 - smoothstep(radius - dr, radius + dr, r);
-  gl_FragColor = strokeStyle * taper;
+  pixColor = strokeStyle * taper;
 }
 `;
 
@@ -280,17 +286,17 @@ function initCircle(context) {
   };
 }
 
-var vert$3 = `attribute vec2 quadPos;
-attribute vec3 pointA, pointB, pointC, pointD;
-attribute vec4 lineColor;
-attribute float lineOpacity, lineWidth, lineGapWidth;
+var vert$3 = `in vec2 quadPos;
+in vec3 pointA, pointB, pointC, pointD;
+in vec4 lineColor;
+in float lineOpacity, lineWidth, lineGapWidth;
 
 uniform float lineMiterLimit;
 
-varying float yCoord;
-varying vec2 lineSize; // lineWidth, lineGapWidth
-varying vec2 miterCoord1, miterCoord2;
-varying vec4 strokeStyle;
+out float yCoord;
+out vec2 lineSize; // lineWidth, lineGapWidth
+out vec2 miterCoord1, miterCoord2;
+out vec4 strokeStyle;
 
 mat3 miterTransform(vec2 xHat, vec2 yHat, vec2 v, float pixWidth) {
   // Find a coordinate basis vector aligned along the bisector
@@ -362,12 +368,16 @@ void main() {
 }
 `;
 
-var frag$3 = `precision highp float;
+var frag$3 = `#version 300 es
 
-varying float yCoord;
-varying vec2 lineSize; // lineWidth, lineGapWidth
-varying vec2 miterCoord1, miterCoord2;
-varying vec4 strokeStyle;
+precision highp float;
+
+in float yCoord;
+in vec2 lineSize; // lineWidth, lineGapWidth
+in vec2 miterCoord1, miterCoord2;
+in vec4 strokeStyle;
+
+out vec4 pixColor;
 
 void main() {
   float step0 = fwidth(yCoord) * 0.707;
@@ -395,7 +405,7 @@ void main() {
     step(-0.01 * step1.y, miterCoord1.y) *
     step(0.01 * step2.y, miterCoord2.y);
 
-  gl_FragColor = strokeStyle * antialias * taperx * tapery;
+  pixColor = strokeStyle * antialias * taperx * tapery;
 }
 `;
 
@@ -452,13 +462,13 @@ function initLine(context) {
   };
 }
 
-var vert$2 = `attribute vec2 position;
-attribute vec4 fillColor;
-attribute float fillOpacity;
+var vert$2 = `in vec2 position;
+in vec4 fillColor;
+in float fillOpacity;
 
 uniform vec2 fillTranslate;
 
-varying vec4 fillStyle;
+out vec4 fillStyle;
 
 void main() {
   vec2 mapPos = tileToMap(position) + fillTranslate * screenScale.z;
@@ -469,12 +479,16 @@ void main() {
 }
 `;
 
-var frag$2 = `precision mediump float;
+var frag$2 = `#version 300 es
 
-varying vec4 fillStyle;
+precision mediump float;
+
+in vec4 fillStyle;
+
+out vec4 pixColor;
 
 void main() {
-    gl_FragColor = fillStyle;
+    pixColor = fillStyle;
 }
 `;
 
@@ -494,14 +508,14 @@ function initFill() {
   };
 }
 
-var vert$1 = `attribute vec2 quadPos;    // Vertices of the quad instance
-attribute vec3 labelPos0;   // x, y, angle
-attribute vec4 spritePos;  // dx, dy (relative to labelPos0), w, h
-attribute vec4 spriteRect; // x, y, w, h
-attribute float iconOpacity;
+var vert$1 = `in vec2 quadPos;    // Vertices of the quad instance
+in vec3 labelPos0;   // x, y, angle
+in vec4 spritePos;  // dx, dy (relative to labelPos0), w, h
+in vec4 spriteRect; // x, y, w, h
+in float iconOpacity;
 
-varying float opacity;
-varying vec2 texCoord;
+out float opacity;
+out vec2 texCoord;
 
 void main() {
   texCoord = spriteRect.xy + spriteRect.zw * quadPos;
@@ -521,17 +535,21 @@ void main() {
 }
 `;
 
-var frag$1 = `precision highp float;
+var frag$1 = `#version 300 es
+
+precision highp float;
 
 uniform sampler2D sprite;
 
-varying float opacity;
-varying vec2 texCoord;
+in float opacity;
+in vec2 texCoord;
+
+out vec4 pixColor;
 
 void main() {
-  vec4 texColor = texture2D(sprite, texCoord);
+  vec4 texColor = texture(sprite, texCoord);
   // Input sprite does NOT have pre-multiplied alpha
-  gl_FragColor = vec4(texColor.rgb * texColor.a, texColor.a) * opacity;
+  pixColor = vec4(texColor.rgb * texColor.a, texColor.a) * opacity;
 }
 `;
 
@@ -554,21 +572,21 @@ function initSprite(context) {
   };
 }
 
-var vert = `attribute vec2 quadPos;  // Vertices of the quad instance
-attribute vec4 labelPos; // x, y, angle, font size scalar
-attribute vec4 charPos;  // dx, dy (relative to labelPos), w, h
-attribute vec4 sdfRect;  // x, y, w, h
-attribute vec4 textColor;
-attribute float textOpacity;
-attribute float textHaloBlur;
-attribute vec4 textHaloColor;
-attribute float textHaloWidth;
+var vert = `in vec2 quadPos;  // Vertices of the quad instance
+in vec4 labelPos; // x, y, angle, font size scalar
+in vec4 charPos;  // dx, dy (relative to labelPos), w, h
+in vec4 sdfRect;  // x, y, w, h
+in vec4 textColor;
+in float textOpacity;
+in float textHaloBlur;
+in vec4 textHaloColor;
+in float textHaloWidth;
 
-varying vec4 fillColor;
-varying vec4 haloColor;
-varying vec2 haloSize; // width, blur
-varying vec2 texCoord;
-varying float taperWidth;
+out vec4 fillColor;
+out vec4 haloColor;
+out vec2 haloSize; // width, blur
+out vec2 texCoord;
+out float taperWidth;
 
 void main() {
   texCoord = sdfRect.xy + sdfRect.zw * quadPos;
@@ -595,18 +613,22 @@ void main() {
 }
 `;
 
-var frag = `precision highp float;
+var frag = `#version 300 es
+
+precision highp float;
 
 uniform sampler2D sdf;
 
-varying vec4 fillColor;
-varying vec4 haloColor;
-varying vec2 haloSize; // width, blur
-varying vec2 texCoord;
-varying float taperWidth;
+in vec4 fillColor;
+in vec4 haloColor;
+in vec2 haloSize; // width, blur
+in vec2 texCoord;
+in float taperWidth;
+
+out vec4 pixColor;
 
 void main() {
-  float sdfVal = texture2D(sdf, texCoord).a;
+  float sdfVal = texture(sdf, texCoord).a;
   float screenDist = taperWidth * (191.0 - 255.0 * sdfVal) / 32.0;
 
   float fillAlpha = smoothstep(-0.707, 0.707, -screenDist);
@@ -616,7 +638,7 @@ void main() {
     ? (1.0 - fillAlpha) * smoothstep(-hTaper, -hEdge, -screenDist)
     : 0.0;
 
-  gl_FragColor = fillColor * fillAlpha + haloColor * haloAlpha;
+  pixColor = fillColor * fillAlpha + haloColor * haloAlpha;
 }
 `;
 
@@ -931,7 +953,7 @@ function initGLpaint(userParams) {
 
 function setParams$1(userParams) {
   const gl = userParams.context.gl;
-  if (!(gl instanceof WebGLRenderingContext)) fail$1("no valid WebGL context");
+  if (!(gl instanceof WebGL2RenderingContext)) fail$1("no valid WebGL context");
 
   const {
     context,

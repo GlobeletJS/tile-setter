@@ -4,7 +4,7 @@ import { initGLpaint } from "tile-gl";
 
 export function setParams(userParams) {
   const gl = userParams.context.gl;
-  if (!(gl instanceof WebGLRenderingContext)) fail("no valid WebGL context");
+  if (!(gl instanceof WebGL2RenderingContext)) fail("no valid WebGL context");
 
   const {
     context,

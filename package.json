@@ -39,12 +39,12 @@
     "eslint": "^8.3.0",
     "eslint-config-globeletjs": "^0.0.6",
     "rollup": "^2.60.1",
-    "yawgl": "^0.3.3"
+    "yawgl": "^0.4.0"
   },
   "dependencies": {
     "chunked-queue": "^0.1.4",
     "d3-tile": "github:GlobeletJS/d3-tile",
-    "tile-gl": "^0.4.4",
+    "tile-gl": "^0.4.5",
     "tile-rack": "^1.0.4",
     "tile-stencil": "^0.4.5",
     "tile-worker": "^0.1.2"
