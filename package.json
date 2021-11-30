@@ -47,6 +47,6 @@
     "tile-gl": "^0.4.5",
     "tile-rack": "^1.0.4",
     "tile-stencil": "^0.4.5",
-    "tile-worker": "^0.1.2"
+    "tile-worker": "^0.1.3"
   }
 }
