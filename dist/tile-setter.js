@@ -1084,7 +1084,9 @@ function expandSpriteURLs(url, pixRatio, token) {
   // Returns an array containing urls to .png and .json files
   const { min, max, floor } = Math;
   const ratio = floor(min(max(1.0, pixRatio), 4.0));
-  const ratioStr = "@" + ratio + "x";
+  const ratioStr = (ratio > 1)
+    ? "@" + ratio + "x"
+    : "";
 
   const prefix = /^mapbox:\/\/sprites\//;
   if ( !url.match(prefix) ) return {

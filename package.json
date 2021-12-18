@@ -46,7 +46,7 @@
     "d3-tile": "github:GlobeletJS/d3-tile",
     "tile-gl": "^0.4.10",
     "tile-rack": "^1.0.4",
-    "tile-stencil": "^0.4.6",
+    "tile-stencil": "^0.4.7",
     "tile-worker": "^0.1.5"
   }
 }
