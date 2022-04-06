@@ -8379,7 +8379,7 @@ function initRenderer(context, coords, style) {
   const { PI, cosh } = Math;
   const { layers, spriteData } = style;
 
-  context.loadSprite(spriteData.image);
+  if (spriteData) context.loadSprite(spriteData.image);
 
   const painters = layers.map(layer => {
     const painter = context.initPainter(getStyleFuncs(layer));
