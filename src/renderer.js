@@ -4,13 +4,11 @@ export function initRenderer(context, coords, style) {
   const { PI, cosh } = Math;
   const { layers, spriteData } = style;
 
-  const sprite = context.loadSprite(spriteData?.image);
+  context.loadSprite(spriteData.image);
 
   const painters = layers.map(layer => {
-    const painter = context.initPainter(getStyleFuncs(layer), sprite);
-
-    painter.visible = () => layer.visible;
-    return painter;
+    const painter = context.initPainter(getStyleFuncs(layer));
+    return Object.assign(painter, { visible: () => layer.visible });
   });
 
   return function(tilesets, pixRatio = 1, dzScale = 1) {

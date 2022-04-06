@@ -1,6 +1,6 @@
 import { getProjection } from "./projection.js";
 import { initCoords } from "./coords.js";
-import { initGLpaint } from "tile-gl";
+import { initGL as initGLpaint } from "tile-batch";
 
 export function setParams(userParams) {
   const gl = userParams.context.gl;
